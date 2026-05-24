@@ -1,0 +1,6 @@
+backend:
+  name: transformers
+  transformers:
+    device_map: auto
+    low_cpu_mem_usage: true
+    attn_implementation: sdpa

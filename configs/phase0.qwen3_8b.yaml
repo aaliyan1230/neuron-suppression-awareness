@@ -1,0 +1,56 @@
+model:
+  id: Qwen/Qwen3-8B
+  revision: b968826d9c46dd6066d109eabc6255188de91218
+  dtype: bfloat16
+  trust_remote_code: true
+
+phase0:
+  layer: 14
+  neuron: 7924
+  pin_value: 20.0
+  activation_window_tokens: 32
+  score_token_text: "\n"
+  score_token_match: contains
+  aggregation: selected_token
+  fallback_aggregation: min
+
+generation:
+  max_new_tokens: 256
+  do_sample: false
+  temperature: 0.0
+
+datasets:
+  harmful:
+    id: walledai/AdvBench
+    split: train
+    limit: 5
+    text_fields: [prompt, goal, instruction, behavior]
+    requires_hf_token: true
+  harmless:
+    id: tatsu-lab/alpaca
+    split: train
+    limit: 5
+    text_fields: [instruction, prompt, text]
+    input_field: input
+    requires_hf_token: false
+
+expected_activations:
+  harmful_mean_reference: -4.41
+  harmless_mean_reference: -0.23
+  harmful_mean_range: [-8.0, -1.0]
+  harmless_mean_range: [-1.0, 0.75]
+  min_abs_gap: 1.0
+
+outputs:
+  root: artifacts/phase0
+  run_name: null
+
+backend:
+  name: transformers
+  transformers:
+    device_map: auto
+    low_cpu_mem_usage: true
+    attn_implementation: sdpa
+  vllm_lens:
+    enforce_eager: true
+    tensor_parallel_size: 1

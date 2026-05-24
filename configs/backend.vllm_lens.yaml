@@ -1,0 +1,9 @@
+backend:
+  name: vllm_lens
+  vllm_lens:
+    enforce_eager: true
+    tensor_parallel_size: 1
+    unsupported_reason: >
+      docs/vllm-lens currently supports residual-stream capture and additive
+      residual steering. Phase 0 requires exact pre-down_proj scalar assignment
+      h_i <- +20, so a vllm-lens worker extension is still needed.

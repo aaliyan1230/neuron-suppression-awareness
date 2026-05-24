@@ -1,0 +1,32 @@
+[project]
+name = "neuron-suppression-awareness"
+version = "0.1.0"
+description = "Phase 0 smoke test for Qwen3 refusal-neuron suppression"
+readme = "docs/phase0.md"
+requires-python = ">=3.10"
+dependencies = [
+    "datasets>=2.19",
+    "huggingface-hub>=0.23",
+    "pyyaml>=6.0",
+    "torch>=2.2",
+    "transformers>=4.51",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+]
+
+[project.scripts]
+nsa-smoke = "neuron_suppression_awareness.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/neuron_suppression_awareness"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
