@@ -11,11 +11,20 @@ SUPPORTED_BACKENDS = {"transformers", "vllm_lens"}
 
 
 @dataclass(frozen=True)
+class QuantizationConfig:
+    load_in_4bit: bool = False
+    bnb_4bit_compute_dtype: str = "float16"
+    bnb_4bit_quant_type: str = "nf4"
+    bnb_4bit_use_double_quant: bool = True
+
+
+@dataclass(frozen=True)
 class ModelConfig:
     id: str
     revision: str
     dtype: str
     trust_remote_code: bool = True
+    quantization: QuantizationConfig | None = None
 
 
 @dataclass(frozen=True)
@@ -108,12 +117,27 @@ def parse_config(raw: dict[str, Any], source_path: Path | None = None) -> Phase0
     outputs_raw = _mapping(raw, "outputs")
     backend_raw = _mapping(raw, "backend")
 
+    quant_raw = model_raw.get("quantization")
+    quantization = None
+    if isinstance(quant_raw, dict):
+        quantization = QuantizationConfig(
+            load_in_4bit=bool(quant_raw.get("load_in_4bit", False)),
+            bnb_4bit_compute_dtype=str(
+                quant_raw.get("bnb_4bit_compute_dtype", "float16")
+            ),
+            bnb_4bit_quant_type=str(quant_raw.get("bnb_4bit_quant_type", "nf4")),
+            bnb_4bit_use_double_quant=bool(
+                quant_raw.get("bnb_4bit_use_double_quant", True)
+            ),
+        )
+
     return Phase0Config(
         model=ModelConfig(
             id=str(_required(model_raw, "id", "model")),
             revision=str(_required(model_raw, "revision", "model")),
             dtype=str(_required(model_raw, "dtype", "model")),
             trust_remote_code=bool(model_raw.get("trust_remote_code", True)),
+            quantization=quantization,
         ),
         phase0=Phase0Settings(
             layer=int(_required(phase_raw, "layer", "phase0")),

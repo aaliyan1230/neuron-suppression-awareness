@@ -16,6 +16,10 @@ dependencies = [
 dev = [
     "pytest>=8",
 ]
+t4 = [
+    "bitsandbytes>=0.43",
+    "accelerate>=0.30",
+]
 
 [project.scripts]
 nsa-smoke = "neuron_suppression_awareness.cli:main"

@@ -1,0 +1,13 @@
+{
+  "id": "ayeshaimr/nsa-phase0",
+  "title": "nsa-phase0",
+  "code_file": "run_phase0.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "dataset_sources": [],
+  "competition_sources": [],
+  "kernel_sources": []
+}

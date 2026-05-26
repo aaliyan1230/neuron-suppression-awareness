@@ -385,7 +385,29 @@ def _load_model(config: Phase0Config, torch: Any, auto_model_cls: Any) -> Any:
     for key in ("device_map", "low_cpu_mem_usage", "attn_implementation"):
         if key in backend:
             kwargs[key] = backend[key]
+
+    quant = config.model.quantization
+    if quant is not None and quant.load_in_4bit:
+        bnb_config = _build_bnb_config(quant, torch)
+        kwargs["quantization_config"] = bnb_config
+
     return auto_model_cls.from_pretrained(config.model.id, **kwargs)
+
+
+def _build_bnb_config(quant: Any, torch: Any) -> Any:
+    try:
+        from transformers import BitsAndBytesConfig
+    except ImportError as exc:
+        raise MissingDependencyError(
+            "4-bit quantization requires bitsandbytes. "
+            "Install with `pip install bitsandbytes`."
+        ) from exc
+    return BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_compute_dtype=_torch_dtype(quant.bnb_4bit_compute_dtype, torch),
+        bnb_4bit_quant_type=quant.bnb_4bit_quant_type,
+        bnb_4bit_use_double_quant=quant.bnb_4bit_use_double_quant,
+    )
 
 
 def _runtime_imports() -> tuple[Any, Any, Any]:
