@@ -9,6 +9,8 @@ import os
 import subprocess
 import sys
 
+os.environ["HF_TOKEN"] = "PASTE_YOUR_HF_TOKEN_HERE"
+
 
 def install_deps():
     subprocess.check_call([
@@ -26,7 +28,7 @@ def setup_repo():
     )
     branch = os.environ.get("NSA_BRANCH", "main")
     subprocess.check_call(["git", "clone", "--depth", "1", "-b", branch, repo_url, "/tmp/nsa"])
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "-e", "/tmp/nsa"])
+    sys.path.insert(0, "/tmp/nsa/src")
 
 
 def setup_hf_token():
