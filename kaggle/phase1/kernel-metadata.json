@@ -1,7 +1,7 @@
 {
-  "id": "__KAGGLE_USERNAME__/nsa-phase0",
-  "title": "nsa-phase0",
-  "code_file": "run_phase0.py",
+  "id": "__KAGGLE_USERNAME__/nsa-phase1",
+  "title": "nsa-phase1",
+  "code_file": "run_phase1.py",
   "language": "python",
   "kernel_type": "script",
   "is_private": true,

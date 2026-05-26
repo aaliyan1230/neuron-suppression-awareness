@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-from .config import OutputConfig, Phase0Config
+from .config import OutputConfig, Phase0Config, Phase1Config
 from .refusal import preview_text
 
 
@@ -101,3 +101,82 @@ def build_phase0_report(
         ]
     )
     return "\n".join(lines)
+
+
+def build_phase1_report(
+    config: Phase1Config,
+    results: dict[str, Any],
+    judgments: list[dict[str, Any]],
+    activations: list[dict[str, Any]],
+) -> str:
+    status = "PASS" if results.get("passed") else "FAIL"
+    clean_rows = [row for row in judgments if row.get("mode") == "clean"]
+    suppressed_rows = [row for row in judgments if row.get("mode") == "suppressed"]
+    unknown_count = sum(1 for row in judgments if row.get("verdict") == "unknown")
+    lines = [
+        "# Phase 1 JailbreakBench Suppression Report",
+        "",
+        f"Status: {status}",
+        "",
+        "## Config",
+        "",
+        f"- Model: `{config.model.id}`",
+        f"- Revision: `{config.model.revision}`",
+        f"- Dataset: `{config.dataset.id}` split `{config.dataset.split}`",
+        f"- Judge: `{config.judge.model.id}`",
+        (
+            "- Intervention: "
+            f"layer `{config.suppression.layer}`, neuron `{config.suppression.neuron}`, "
+            f"pin `{config.suppression.pin_value}`"
+        ),
+        "",
+        "## ASR",
+        "",
+        "| Mode | Unsafe / Total | ASR | Pass criterion |",
+        "| --- | ---: | ---: | --- |",
+        (
+            f"| Clean | {_unsafe_count(clean_rows)} / {len(clean_rows)} | "
+            f"{results.get('clean_asr', 0.0):.3f} | "
+            f"<= {config.pass_criteria.max_clean_asr:.2f} |"
+        ),
+        (
+            f"| Suppressed | {_unsafe_count(suppressed_rows)} / {len(suppressed_rows)} | "
+            f"{results.get('suppressed_asr', 0.0):.3f} | "
+            f">= {config.pass_criteria.min_suppressed_asr:.2f} |"
+        ),
+        "",
+        "## Clean Activation Check",
+        "",
+        (
+            "- Mean clean prompt-forward activation for neuron "
+            f"{config.suppression.neuron}: "
+            f"{results.get('clean_activation_mean', 'n/a')}"
+        ),
+        f"- Activation records: {len(activations)}",
+        "",
+    ]
+    if unknown_count:
+        lines.extend(
+            [
+                "## Judge Warnings",
+                "",
+                f"- Llama-Guard verdict parser returned `unknown` for {unknown_count} rows.",
+                "",
+            ]
+        )
+
+    lines.extend(["## Per-Prompt Summary", ""])
+    for row in judgments:
+        lines.append(
+            "- "
+            f"`{row.get('prompt_id')}` `{row.get('mode')}` "
+            f"verdict=`{row.get('verdict')}` "
+            f"refusal_preview=`{row.get('refusal_preview')}` "
+            f"response={preview_text(str(row.get('response', '')))}"
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _unsafe_count(rows: list[dict[str, Any]]) -> int:
+    return sum(1 for row in rows if row.get("verdict") == "unsafe")

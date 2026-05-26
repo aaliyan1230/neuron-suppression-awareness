@@ -40,6 +40,13 @@ class Phase0Settings:
 
 
 @dataclass(frozen=True)
+class SuppressionSettings:
+    layer: int
+    neuron: int
+    pin_value: float
+
+
+@dataclass(frozen=True)
 class GenerationConfig:
     max_new_tokens: int
     do_sample: bool
@@ -99,7 +106,48 @@ class Phase0Config:
         return replace(self, backend=replace(self.backend, name=backend_name))
 
 
-def load_config(path: str | Path, backend_override: str | None = None) -> Phase0Config:
+@dataclass(frozen=True)
+class JudgeModelConfig:
+    id: str
+    revision: str
+    dtype: str
+    trust_remote_code: bool = True
+    quantization: QuantizationConfig | None = None
+
+
+@dataclass(frozen=True)
+class JudgeConfig:
+    model: JudgeModelConfig
+    max_new_tokens: int
+
+
+@dataclass(frozen=True)
+class PassCriteria:
+    min_suppressed_asr: float
+    max_clean_asr: float
+
+
+@dataclass(frozen=True)
+class Phase1Config:
+    model: ModelConfig
+    suppression: SuppressionSettings
+    generation: GenerationConfig
+    dataset: TextDatasetConfig
+    judge: JudgeConfig
+    pass_criteria: PassCriteria
+    checkpoint: bool
+    outputs: OutputConfig
+    backend: BackendConfig
+    source_path: Path | None = None
+
+    def with_backend(self, backend_name: str) -> "Phase1Config":
+        return replace(self, backend=replace(self.backend, name=backend_name))
+
+
+ExperimentConfig = Phase0Config | Phase1Config
+
+
+def load_config(path: str | Path, backend_override: str | None = None) -> ExperimentConfig:
     raw = _load_yaml(Path(path))
     config = parse_config(raw, source_path=Path(path))
     if backend_override is not None:
@@ -108,7 +156,18 @@ def load_config(path: str | Path, backend_override: str | None = None) -> Phase0
     return config
 
 
-def parse_config(raw: dict[str, Any], source_path: Path | None = None) -> Phase0Config:
+def parse_config(raw: dict[str, Any], source_path: Path | None = None) -> ExperimentConfig:
+    phase = int(raw.get("phase", 0))
+    if phase == 0:
+        return parse_phase0_config(raw, source_path=source_path)
+    if phase == 1:
+        return parse_phase1_config(raw, source_path=source_path)
+    raise ConfigError(f"Unsupported phase {phase}. Expected 0 or 1.")
+
+
+def parse_phase0_config(
+    raw: dict[str, Any], source_path: Path | None = None
+) -> Phase0Config:
     model_raw = _mapping(raw, "model")
     phase_raw = _mapping(raw, "phase0")
     gen_raw = _mapping(raw, "generation")
@@ -117,28 +176,8 @@ def parse_config(raw: dict[str, Any], source_path: Path | None = None) -> Phase0
     outputs_raw = _mapping(raw, "outputs")
     backend_raw = _mapping(raw, "backend")
 
-    quant_raw = model_raw.get("quantization")
-    quantization = None
-    if isinstance(quant_raw, dict):
-        quantization = QuantizationConfig(
-            load_in_4bit=bool(quant_raw.get("load_in_4bit", False)),
-            bnb_4bit_compute_dtype=str(
-                quant_raw.get("bnb_4bit_compute_dtype", "float16")
-            ),
-            bnb_4bit_quant_type=str(quant_raw.get("bnb_4bit_quant_type", "nf4")),
-            bnb_4bit_use_double_quant=bool(
-                quant_raw.get("bnb_4bit_use_double_quant", True)
-            ),
-        )
-
     return Phase0Config(
-        model=ModelConfig(
-            id=str(_required(model_raw, "id", "model")),
-            revision=str(_required(model_raw, "revision", "model")),
-            dtype=str(_required(model_raw, "dtype", "model")),
-            trust_remote_code=bool(model_raw.get("trust_remote_code", True)),
-            quantization=quantization,
-        ),
+        model=_parse_model_config(model_raw, "model"),
         phase0=Phase0Settings(
             layer=int(_required(phase_raw, "layer", "phase0")),
             neuron=int(_required(phase_raw, "neuron", "phase0")),
@@ -216,12 +255,77 @@ def parse_config(raw: dict[str, Any], source_path: Path | None = None) -> Phase0
     )
 
 
-def validate_config(config: Phase0Config) -> None:
+def parse_phase1_config(
+    raw: dict[str, Any], source_path: Path | None = None
+) -> Phase1Config:
+    model_raw = _mapping(raw, "model")
+    suppression_raw = _mapping(raw, "suppression")
+    gen_raw = _mapping(raw, "generation")
+    dataset_raw = _mapping(raw, "dataset")
+    judge_raw = _mapping(raw, "judge")
+    judge_model_raw = _mapping(judge_raw, "model", parent="judge")
+    criteria_raw = _mapping(raw, "pass_criteria")
+    outputs_raw = _mapping(raw, "outputs")
+    backend_raw = _mapping(raw, "backend")
+
+    return Phase1Config(
+        model=_parse_model_config(model_raw, "model"),
+        suppression=SuppressionSettings(
+            layer=int(_required(suppression_raw, "layer", "suppression")),
+            neuron=int(_required(suppression_raw, "neuron", "suppression")),
+            pin_value=float(_required(suppression_raw, "pin_value", "suppression")),
+        ),
+        generation=GenerationConfig(
+            max_new_tokens=int(_required(gen_raw, "max_new_tokens", "generation")),
+            do_sample=bool(gen_raw.get("do_sample", False)),
+            temperature=float(gen_raw.get("temperature", 0.0)),
+        ),
+        dataset=_parse_dataset_config(dataset_raw, "dataset"),
+        judge=JudgeConfig(
+            model=JudgeModelConfig(
+                id=str(_required(judge_model_raw, "id", "judge.model")),
+                revision=str(_required(judge_model_raw, "revision", "judge.model")),
+                dtype=str(_required(judge_model_raw, "dtype", "judge.model")),
+                trust_remote_code=bool(judge_model_raw.get("trust_remote_code", True)),
+                quantization=_parse_quantization_config(judge_model_raw),
+            ),
+            max_new_tokens=int(_required(judge_raw, "max_new_tokens", "judge")),
+        ),
+        pass_criteria=PassCriteria(
+            min_suppressed_asr=float(
+                _required(criteria_raw, "min_suppressed_asr", "pass_criteria")
+            ),
+            max_clean_asr=float(
+                _required(criteria_raw, "max_clean_asr", "pass_criteria")
+            ),
+        ),
+        checkpoint=bool(raw.get("checkpoint", True)),
+        outputs=OutputConfig(
+            root=Path(str(_required(outputs_raw, "root", "outputs"))),
+            run_name=(
+                None
+                if outputs_raw.get("run_name") is None
+                else str(outputs_raw.get("run_name"))
+            ),
+        ),
+        backend=BackendConfig(
+            name=str(backend_raw.get("name", "transformers")),
+            transformers=dict(backend_raw.get("transformers", {})),
+            vllm_lens=dict(backend_raw.get("vllm_lens", {})),
+        ),
+        source_path=source_path,
+    )
+
+
+def validate_config(config: ExperimentConfig) -> None:
     if config.backend.name not in SUPPORTED_BACKENDS:
         raise ConfigError(
             f"Unsupported backend {config.backend.name!r}. "
             f"Expected one of {sorted(SUPPORTED_BACKENDS)}."
         )
+    if isinstance(config, Phase1Config):
+        _validate_phase1_config(config)
+        return
     if config.phase0.layer < 0:
         raise ConfigError("phase0.layer must be non-negative.")
     if config.phase0.neuron < 0:
@@ -247,6 +351,49 @@ def validate_config(config: Phase0Config) -> None:
     _validate_range(
         config.expected_activations.harmless_mean_range,
         "expected_activations.harmless_mean_range",
+    )
+
+
+def _validate_phase1_config(config: Phase1Config) -> None:
+    if config.backend.name != "transformers":
+        raise ConfigError("Phase 1 currently supports only the transformers backend.")
+    if config.suppression.layer < 0:
+        raise ConfigError("suppression.layer must be non-negative.")
+    if config.suppression.neuron < 0:
+        raise ConfigError("suppression.neuron must be non-negative.")
+    if config.generation.max_new_tokens <= 0:
+        raise ConfigError("generation.max_new_tokens must be positive.")
+    if config.dataset.limit <= 0:
+        raise ConfigError("dataset.limit must be positive.")
+    if config.judge.max_new_tokens <= 0:
+        raise ConfigError("judge.max_new_tokens must be positive.")
+    if not 0.0 <= config.pass_criteria.min_suppressed_asr <= 1.0:
+        raise ConfigError("pass_criteria.min_suppressed_asr must be between 0 and 1.")
+    if not 0.0 <= config.pass_criteria.max_clean_asr <= 1.0:
+        raise ConfigError("pass_criteria.max_clean_asr must be between 0 and 1.")
+
+
+def _parse_model_config(raw: dict[str, Any], path: str) -> ModelConfig:
+    return ModelConfig(
+        id=str(_required(raw, "id", path)),
+        revision=str(_required(raw, "revision", path)),
+        dtype=str(_required(raw, "dtype", path)),
+        trust_remote_code=bool(raw.get("trust_remote_code", True)),
+        quantization=_parse_quantization_config(raw),
+    )
+
+
+def _parse_quantization_config(raw: dict[str, Any]) -> QuantizationConfig | None:
+    quant_raw = raw.get("quantization")
+    if not isinstance(quant_raw, dict):
+        return None
+    return QuantizationConfig(
+        load_in_4bit=bool(quant_raw.get("load_in_4bit", False)),
+        bnb_4bit_compute_dtype=str(quant_raw.get("bnb_4bit_compute_dtype", "float16")),
+        bnb_4bit_quant_type=str(quant_raw.get("bnb_4bit_quant_type", "nf4")),
+        bnb_4bit_use_double_quant=bool(
+            quant_raw.get("bnb_4bit_use_double_quant", True)
+        ),
     )
 
 

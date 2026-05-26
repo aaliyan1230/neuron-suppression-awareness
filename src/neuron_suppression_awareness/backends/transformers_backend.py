@@ -292,28 +292,56 @@ def generate_response(
     mode: str,
     pin: bool,
 ) -> dict[str, Any]:
-    input_ids = apply_chat_template(tokenizer, prompt.text, torch)
+    layer = config.phase0.layer if pin else None
+    neuron = config.phase0.neuron if pin else None
+    pin_value = config.phase0.pin_value if pin else None
+    response = generate_with_hook(
+        model,
+        tokenizer,
+        prompt.text,
+        torch,
+        generation_kwargs(config, tokenizer),
+        layer=layer,
+        neuron=neuron,
+        pin_value=pin_value,
+    )
+    return {
+        "prompt_id": prompt.prompt_id,
+        "source": prompt.source,
+        "dataset_id": prompt.dataset_id,
+        "row_index": prompt.row_index,
+        "mode": mode,
+        "pin_active": pin,
+        "pin_value": config.phase0.pin_value if pin else None,
+        "response": response,
+        "response_preview": preview_text(response),
+        "refusal_preview": classify_refusal_preview(response),
+        "prompt": prompt.text,
+    }
+
+
+def generate_with_hook(
+    model: Any,
+    tokenizer: Any,
+    prompt_text: str,
+    torch: Any,
+    gen_kwargs: dict[str, Any],
+    layer: int | None = None,
+    neuron: int | None = None,
+    pin_value: float | None = None,
+) -> str:
+    input_ids = apply_chat_template(tokenizer, prompt_text, torch)
     attention_mask = torch.ones_like(input_ids)
     input_ids = _move_to_model_device(input_ids, model)
     attention_mask = _move_to_model_device(attention_mask, model)
-    gen_kwargs: dict[str, Any] = {
-        "max_new_tokens": config.generation.max_new_tokens,
-        "do_sample": config.generation.do_sample,
-    }
-    if config.generation.do_sample:
-        gen_kwargs["temperature"] = config.generation.temperature
-    if getattr(tokenizer, "pad_token_id", None) is not None:
-        gen_kwargs["pad_token_id"] = tokenizer.pad_token_id
-    elif getattr(tokenizer, "eos_token_id", None) is not None:
-        gen_kwargs["pad_token_id"] = tokenizer.eos_token_id
 
     handle = None
     hook = None
-    if pin:
-        module = get_down_proj_module(model, config.phase0.layer)
+    if layer is not None and neuron is not None and pin_value is not None:
+        module = get_down_proj_module(model, layer)
         hook = DownProjNeuronHook(
-            neuron=config.phase0.neuron,
-            pin_value=config.phase0.pin_value,
+            neuron=neuron,
+            pin_value=pin_value,
             capture=False,
         )
         handle = module.register_forward_pre_hook(hook)
@@ -328,24 +356,25 @@ def generate_response(
         if handle is not None:
             handle.remove()
 
-    if pin and hook is not None and hook.pinned_calls == 0:
+    if hook is not None and hook.pinned_calls == 0:
         raise HookFailure("Pinned generation hook was registered but never fired.")
 
     generated = outputs[0][input_ids.shape[-1] :].detach().cpu().tolist()
-    response = tokenizer.decode(generated, skip_special_tokens=True)
-    return {
-        "prompt_id": prompt.prompt_id,
-        "source": prompt.source,
-        "dataset_id": prompt.dataset_id,
-        "row_index": prompt.row_index,
-        "mode": mode,
-        "pin_active": pin,
-        "pin_value": config.phase0.pin_value if pin else None,
-        "response": response,
-        "response_preview": preview_text(response),
-        "refusal_preview": classify_refusal_preview(response),
-        "prompt": prompt.text,
+    return tokenizer.decode(generated, skip_special_tokens=True)
+
+
+def generation_kwargs(config: Any, tokenizer: Any) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {
+        "max_new_tokens": config.generation.max_new_tokens,
+        "do_sample": config.generation.do_sample,
     }
+    if config.generation.do_sample:
+        kwargs["temperature"] = config.generation.temperature
+    if getattr(tokenizer, "pad_token_id", None) is not None:
+        kwargs["pad_token_id"] = tokenizer.pad_token_id
+    elif getattr(tokenizer, "eos_token_id", None) is not None:
+        kwargs["pad_token_id"] = tokenizer.eos_token_id
+    return kwargs
 
 
 def apply_chat_template(tokenizer: Any, prompt: str, torch: Any) -> Any:

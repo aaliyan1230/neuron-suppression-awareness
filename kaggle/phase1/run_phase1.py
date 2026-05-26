@@ -1,5 +1,5 @@
 """
-Kaggle kernel script for Phase 0 smoke test on T4 GPU.
+Kaggle kernel script for Phase 1 JailbreakBench suppression evaluation on T4 GPU.
 
 Runs as a plain Python script via `kaggle kernels push`.
 All output artifacts are written to /kaggle/working/ for retrieval.
@@ -25,7 +25,9 @@ def setup_repo():
         "https://github.com/aaliyan1230/neuron-suppression-awareness.git",
     )
     branch = os.environ.get("NSA_BRANCH", "main")
-    subprocess.check_call(["git", "clone", "--depth", "1", "-b", branch, repo_url, "/tmp/nsa"])
+    subprocess.check_call([
+        "git", "clone", "--depth", "1", "-b", branch, repo_url, "/tmp/nsa",
+    ])
     sys.path.insert(0, "/tmp/nsa/src")
 
 
@@ -57,15 +59,14 @@ def setup_hf_token():
         os.environ["HF_TOKEN"] = token
         os.environ["HUGGING_FACE_HUB_TOKEN"] = token
     else:
-        print("WARNING: No HF_TOKEN found. AdvBench (gated) may fail to load.")
+        print("WARNING: No HF_TOKEN found. Llama-Guard-3-8B is gated and may fail.")
         print("Options: attach a private Kaggle dataset with hf_token.txt or provide /kaggle/working/.hf_token.")
 
 
-def run_phase0():
+def run_phase1():
     from neuron_suppression_awareness.cli import main
-    config_path = "/tmp/nsa/configs/phase0.qwen3_8b.kaggle_t4.yaml"
-    exit_code = main(["--config", config_path, "--backend", "transformers"])
-    return exit_code
+    config_path = "/tmp/nsa/configs/phase1.qwen3_8b.kaggle_t4.yaml"
+    return main(["--config", config_path, "--backend", "transformers"])
 
 
 if __name__ == "__main__":
@@ -78,9 +79,9 @@ if __name__ == "__main__":
     print("=== Setting up HF token ===")
     setup_hf_token()
 
-    print("=== Running Phase 0 smoke test ===")
-    code = run_phase0()
+    print("=== Running Phase 1 JailbreakBench suppression evaluation ===")
+    code = run_phase1()
 
-    print(f"\n=== Phase 0 finished with exit code {code} ===")
-    print("Artifacts written to /kaggle/working/artifacts/phase0/")
+    print(f"\n=== Phase 1 finished with exit code {code} ===")
+    print("Artifacts written to /kaggle/working/artifacts/phase1/")
     sys.exit(code)

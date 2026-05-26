@@ -3,20 +3,21 @@ from __future__ import annotations
 import argparse
 import sys
 
+from .backends import phase1_transformers
 from .backends import transformers_backend, vllm_lens
-from .config import SUPPORTED_BACKENDS, load_config
+from .config import SUPPORTED_BACKENDS, Phase0Config, Phase1Config, load_config
 from .errors import NSAError, UnsupportedBackendError
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="nsa-smoke",
-        description="Run the Phase 0 Qwen3 refusal-neuron smoke test.",
+        description="Run neuron suppression awareness experiment phases.",
     )
     parser.add_argument(
         "--config",
         default="configs/phase0.qwen3_8b.yaml",
-        help="Path to Phase 0 YAML config.",
+        help="Path to experiment YAML config.",
     )
     parser.add_argument(
         "--backend",
@@ -32,11 +33,17 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         config = load_config(args.config, backend_override=args.backend)
-        if config.backend.name == "transformers":
+        if isinstance(config, Phase1Config):
+            if config.backend.name != "transformers":
+                raise AssertionError(f"Unhandled Phase 1 backend: {config.backend.name}")
+            result = phase1_transformers.run_phase1(config)
+            _print_phase1_result(result)
+            return 0
+        if isinstance(config, Phase0Config) and config.backend.name == "transformers":
             result = transformers_backend.run_phase0(config)
             _print_transformers_result(result)
             return 0
-        if config.backend.name == "vllm_lens":
+        if isinstance(config, Phase0Config) and config.backend.name == "vllm_lens":
             vllm_lens.run_phase0(config)
             return 0
         raise AssertionError(f"Unhandled backend: {config.backend.name}")
@@ -44,7 +51,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Unsupported backend: {exc}", file=sys.stderr)
         return 2
     except NSAError as exc:
-        print(f"Phase 0 failed: {exc}", file=sys.stderr)
+        print(f"Experiment failed: {exc}", file=sys.stderr)
         return 1
 
 
@@ -58,6 +65,17 @@ def _print_transformers_result(result: transformers_backend.Phase0RunResult) -> 
             f"{item['mode']} preview ({item['refusal_preview']}): "
             f"{item['preview']}"
         )
+
+
+def _print_phase1_result(result: phase1_transformers.Phase1RunResult) -> None:
+    status = "PASS" if result.passed else "FAIL"
+    print(f"Artifacts: {result.artifact_dir}")
+    print(
+        "Phase 1 ASR: "
+        f"clean={result.clean_asr:.3f}, "
+        f"suppressed={result.suppressed_asr:.3f}, "
+        f"n={result.n_prompts}, status={status}"
+    )
 
 
 if __name__ == "__main__":
