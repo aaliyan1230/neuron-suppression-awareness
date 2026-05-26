@@ -55,12 +55,26 @@ def setup_hf_token():
                 with open(token_file) as f:
                     token = f.read().strip()
                 break
+    if not token:
+        for root, _dirs, files in os.walk("/kaggle/input"):
+            for filename in files:
+                if filename in {"hf_token.txt", "token.txt"}:
+                    token_file = os.path.join(root, filename)
+                    with open(token_file) as f:
+                        token = f.read().strip()
+                    print(f"Found HF token file at {token_file}")
+                    break
+            if token:
+                break
     if token:
         os.environ["HF_TOKEN"] = token
         os.environ["HUGGING_FACE_HUB_TOKEN"] = token
+        print("HF token configured from Kaggle runtime inputs.")
     else:
         print("WARNING: No HF_TOKEN found. Llama-Guard-3-8B is gated and may fail.")
         print("Options: attach a private Kaggle dataset with hf_token.txt or provide /kaggle/working/.hf_token.")
+        if os.path.exists("/kaggle/input"):
+            print("Available /kaggle/input entries:", sorted(os.listdir("/kaggle/input")))
 
 
 def run_phase1():

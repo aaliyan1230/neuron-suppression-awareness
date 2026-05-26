@@ -59,3 +59,28 @@ def test_load_prompt_records_uses_text_fields() -> None:
 
     assert [record.text for record in records] == ["first", "second"]
     assert [record.prompt_id for record in records] == ["harmful-0", "harmful-1"]
+
+
+def test_load_prompt_records_passes_dataset_name() -> None:
+    config = TextDatasetConfig(
+        id="fake",
+        name="config-name",
+        split="train",
+        limit=1,
+        text_fields=("prompt",),
+    )
+    calls = []
+
+    def fake_loader(*args, **kwargs):
+        calls.append((args, kwargs))
+        return [{"prompt": "first"}]
+
+    records = load_prompt_records(config, "eval", load_dataset_fn=fake_loader)
+
+    assert records[0].text == "first"
+    assert calls == [
+        (
+            ("fake", "config-name"),
+            {"split": "train", "token": None},
+        )
+    ]

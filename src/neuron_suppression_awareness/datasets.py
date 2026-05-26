@@ -51,7 +51,11 @@ def load_prompt_records(
             ) from exc
 
     try:
-        dataset = load_dataset_fn(config.id, split=config.split, token=token)
+        dataset_kwargs = {"split": config.split, "token": token}
+        if config.name is None:
+            dataset = load_dataset_fn(config.id, **dataset_kwargs)
+        else:
+            dataset = load_dataset_fn(config.id, config.name, **dataset_kwargs)
     except Exception as exc:
         token_hint = (
             " Confirm HF_TOKEN/HUGGING_FACE_HUB_TOKEN is set and has access."

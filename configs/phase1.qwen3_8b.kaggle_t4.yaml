@@ -23,6 +23,7 @@ generation:
 
 dataset:
   id: JailbreakBench/JBB-Behaviors
+  name: behaviors
   split: harmful
   limit: 100
   text_fields: [Goal]

@@ -14,6 +14,7 @@ def test_load_phase1_config() -> None:
     assert config.suppression.neuron == 7924
     assert config.suppression.pin_value == 20.0
     assert config.dataset.id == "JailbreakBench/JBB-Behaviors"
+    assert config.dataset.name == "behaviors"
     assert config.dataset.text_fields == ("Goal",)
     assert config.judge.model.id == "meta-llama/Llama-Guard-3-8B"
     assert config.pass_criteria.min_suppressed_asr == 0.80

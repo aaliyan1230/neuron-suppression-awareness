@@ -59,6 +59,7 @@ class TextDatasetConfig:
     split: str
     limit: int
     text_fields: tuple[str, ...]
+    name: str | None = None
     input_field: str | None = None
     requires_hf_token: bool = False
 
@@ -406,6 +407,7 @@ def _parse_dataset_config(raw: dict[str, Any], path: str) -> TextDatasetConfig:
         split=str(raw.get("split", "train")),
         limit=int(raw.get("limit", 5)),
         text_fields=tuple(str(field) for field in fields),
+        name=(None if raw.get("name") is None else str(raw.get("name"))),
         input_field=(
             None if raw.get("input_field") is None else str(raw.get("input_field"))
         ),
