@@ -364,12 +364,16 @@ def apply_chat_template(tokenizer: Any, prompt: str, torch: Any) -> Any:
     except TypeError:
         encoded = tokenizer.apply_chat_template(messages, **kwargs)
 
-    if isinstance(encoded, dict):
+    if hasattr(encoded, "input_ids"):
+        input_ids = encoded.input_ids
+    elif isinstance(encoded, dict):
         input_ids = encoded["input_ids"]
     else:
         input_ids = encoded
     if isinstance(input_ids, list):
         input_ids = torch.tensor([input_ids], dtype=torch.long)
+    if not hasattr(input_ids, "dim"):
+        input_ids = torch.tensor(input_ids, dtype=torch.long)
     if input_ids.dim() == 1:
         input_ids = input_ids.unsqueeze(0)
     return input_ids
