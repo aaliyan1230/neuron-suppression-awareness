@@ -181,7 +181,64 @@ class Phase2AConfig:
         return replace(self, backend=replace(self.backend, name=backend_name))
 
 
-ExperimentConfig = Phase0Config | Phase1Config | Phase2AConfig
+@dataclass(frozen=True)
+class Phase2BInputs:
+    phase2a_artifact_dir: Path
+
+
+@dataclass(frozen=True)
+class LoRASettings:
+    rank: int
+    alpha: int
+    dropout: float
+    target_modules: tuple[str, ...]
+    learning_rate: float
+    epochs: int
+    batch_size: int
+    gradient_accumulation_steps: int
+    max_seq_tokens: int
+    seed: int
+    save_each_epoch: bool
+
+
+@dataclass(frozen=True)
+class Phase2BInjectionSettings:
+    layer: int
+    eval_alpha: float
+
+
+@dataclass(frozen=True)
+class Phase2BEvaluationSettings:
+    max_new_tokens: int
+    do_sample: bool
+    temperature: float
+    limit: int | None
+
+
+@dataclass(frozen=True)
+class Phase2BPassCriteria:
+    min_detection_rate: float
+    max_clean_fpr: float
+    max_noise_fpr: float
+
+
+@dataclass(frozen=True)
+class Phase2BConfig:
+    model: ModelConfig
+    inputs: Phase2BInputs
+    training: LoRASettings
+    injection: Phase2BInjectionSettings
+    evaluation: Phase2BEvaluationSettings
+    pass_criteria: Phase2BPassCriteria
+    outputs: OutputConfig
+    backend: BackendConfig
+    source_path: Path | None = None
+
+    def with_backend(self, backend_name: str) -> "Phase2BConfig":
+        return replace(self, backend=replace(self.backend, name=backend_name))
+
+
+ExperimentConfig = Phase0Config | Phase1Config | Phase2AConfig | Phase2BConfig
 
 
 def load_config(path: str | Path, backend_override: str | None = None) -> ExperimentConfig:
@@ -194,14 +251,17 @@ def load_config(path: str | Path, backend_override: str | None = None) -> Experi
 
 
 def parse_config(raw: dict[str, Any], source_path: Path | None = None) -> ExperimentConfig:
-    phase = int(raw.get("phase", 0))
-    if phase == 0:
+    phase_raw = raw.get("phase", 0)
+    phase = str(phase_raw).lower()
+    if phase == "0":
         return parse_phase0_config(raw, source_path=source_path)
-    if phase == 1:
+    if phase == "1":
         return parse_phase1_config(raw, source_path=source_path)
-    if phase == 2:
+    if phase == "2":
         return parse_phase2a_config(raw, source_path=source_path)
-    raise ConfigError(f"Unsupported phase {phase}. Expected 0, 1, or 2.")
+    if phase in {"2b", "phase2b"}:
+        return parse_phase2b_config(raw, source_path=source_path)
+    raise ConfigError(f"Unsupported phase {phase_raw}. Expected 0, 1, 2, or 2b.")
 
 
 def parse_phase0_config(
@@ -421,6 +481,79 @@ def parse_phase2a_config(
     )
 
 
+def parse_phase2b_config(
+    raw: dict[str, Any], source_path: Path | None = None
+) -> Phase2BConfig:
+    model_raw = _mapping(raw, "model")
+    inputs_raw = _mapping(raw, "inputs")
+    training_raw = _mapping(raw, "training")
+    injection_raw = _mapping(raw, "injection")
+    eval_raw = _mapping(raw, "evaluation")
+    criteria_raw = _mapping(raw, "pass_criteria")
+    outputs_raw = _mapping(raw, "outputs")
+    backend_raw = _mapping(raw, "backend")
+
+    target_modules = _required(training_raw, "target_modules", "training")
+    if not isinstance(target_modules, list | tuple) or not target_modules:
+        raise ConfigError("training.target_modules must be a non-empty list.")
+
+    limit_raw = eval_raw.get("limit")
+    return Phase2BConfig(
+        model=_parse_model_config(model_raw, "model"),
+        inputs=Phase2BInputs(
+            phase2a_artifact_dir=Path(
+                str(_required(inputs_raw, "phase2a_artifact_dir", "inputs"))
+            )
+        ),
+        training=LoRASettings(
+            rank=int(_required(training_raw, "rank", "training")),
+            alpha=int(_required(training_raw, "alpha", "training")),
+            dropout=float(training_raw.get("dropout", 0.0)),
+            target_modules=tuple(str(module) for module in target_modules),
+            learning_rate=float(_required(training_raw, "learning_rate", "training")),
+            epochs=int(_required(training_raw, "epochs", "training")),
+            batch_size=int(training_raw.get("batch_size", 1)),
+            gradient_accumulation_steps=int(
+                training_raw.get("gradient_accumulation_steps", 16)
+            ),
+            max_seq_tokens=int(training_raw.get("max_seq_tokens", 384)),
+            seed=int(training_raw.get("seed", 42)),
+            save_each_epoch=bool(training_raw.get("save_each_epoch", True)),
+        ),
+        injection=Phase2BInjectionSettings(
+            layer=int(_required(injection_raw, "layer", "injection")),
+            eval_alpha=float(_required(injection_raw, "eval_alpha", "injection")),
+        ),
+        evaluation=Phase2BEvaluationSettings(
+            max_new_tokens=int(_required(eval_raw, "max_new_tokens", "evaluation")),
+            do_sample=bool(eval_raw.get("do_sample", False)),
+            temperature=float(eval_raw.get("temperature", 0.0)),
+            limit=None if limit_raw is None else int(limit_raw),
+        ),
+        pass_criteria=Phase2BPassCriteria(
+            min_detection_rate=float(
+                _required(criteria_raw, "min_detection_rate", "pass_criteria")
+            ),
+            max_clean_fpr=float(_required(criteria_raw, "max_clean_fpr", "pass_criteria")),
+            max_noise_fpr=float(_required(criteria_raw, "max_noise_fpr", "pass_criteria")),
+        ),
+        outputs=OutputConfig(
+            root=Path(str(_required(outputs_raw, "root", "outputs"))),
+            run_name=(
+                None
+                if outputs_raw.get("run_name") is None
+                else str(outputs_raw.get("run_name"))
+            ),
+        ),
+        backend=BackendConfig(
+            name=str(backend_raw.get("name", "transformers")),
+            transformers=dict(backend_raw.get("transformers", {})),
+            vllm_lens=dict(backend_raw.get("vllm_lens", {})),
+        ),
+        source_path=source_path,
+    )
+
+
 def validate_config(config: ExperimentConfig) -> None:
     if config.backend.name not in SUPPORTED_BACKENDS:
         raise ConfigError(
@@ -432,6 +565,9 @@ def validate_config(config: ExperimentConfig) -> None:
         return
     if isinstance(config, Phase2AConfig):
         _validate_phase2a_config(config)
+        return
+    if isinstance(config, Phase2BConfig):
+        _validate_phase2b_config(config)
         return
     if config.phase0.layer < 0:
         raise ConfigError("phase0.layer must be non-negative.")
@@ -514,6 +650,45 @@ def _validate_phase2a_config(config: Phase2AConfig) -> None:
         raise ConfigError("training_data.alpha_values must be non-empty.")
     if any(a <= 0 for a in td.alpha_values):
         raise ConfigError("training_data.alpha_values must all be positive.")
+
+
+def _validate_phase2b_config(config: Phase2BConfig) -> None:
+    if config.backend.name != "transformers":
+        raise ConfigError("Phase 2B currently supports only the transformers backend.")
+    if not config.inputs.phase2a_artifact_dir:
+        raise ConfigError("inputs.phase2a_artifact_dir must be set.")
+    training = config.training
+    if training.rank <= 0:
+        raise ConfigError("training.rank must be positive.")
+    if training.alpha <= 0:
+        raise ConfigError("training.alpha must be positive.")
+    if not 0.0 <= training.dropout < 1.0:
+        raise ConfigError("training.dropout must be in [0, 1).")
+    if training.learning_rate <= 0:
+        raise ConfigError("training.learning_rate must be positive.")
+    if training.epochs <= 0:
+        raise ConfigError("training.epochs must be positive.")
+    if training.batch_size <= 0:
+        raise ConfigError("training.batch_size must be positive.")
+    if training.gradient_accumulation_steps <= 0:
+        raise ConfigError("training.gradient_accumulation_steps must be positive.")
+    if training.max_seq_tokens <= 0:
+        raise ConfigError("training.max_seq_tokens must be positive.")
+    if config.injection.layer < 0:
+        raise ConfigError("injection.layer must be non-negative.")
+    if config.injection.eval_alpha <= 0:
+        raise ConfigError("injection.eval_alpha must be positive.")
+    if config.evaluation.max_new_tokens <= 0:
+        raise ConfigError("evaluation.max_new_tokens must be positive.")
+    if config.evaluation.limit is not None and config.evaluation.limit <= 0:
+        raise ConfigError("evaluation.limit must be positive when set.")
+    for name, val in [
+        ("min_detection_rate", config.pass_criteria.min_detection_rate),
+        ("max_clean_fpr", config.pass_criteria.max_clean_fpr),
+        ("max_noise_fpr", config.pass_criteria.max_noise_fpr),
+    ]:
+        if not 0.0 <= val <= 1.0:
+            raise ConfigError(f"pass_criteria.{name} must be between 0 and 1.")
 
 
 def _parse_model_config(raw: dict[str, Any], path: str) -> ModelConfig:

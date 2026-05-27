@@ -1,0 +1,13 @@
+{
+  "id": "__KAGGLE_USERNAME__/nsa-phase2b",
+  "title": "nsa-phase2b",
+  "code_file": "run_phase2b.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "dataset_sources": [],
+  "competition_sources": [],
+  "kernel_sources": []
+}

@@ -1,0 +1,62 @@
+phase: 2b
+
+model:
+  id: Qwen/Qwen3-8B
+  revision: b968826d9c46dd6066d109eabc6255188de91218
+  dtype: float16
+  trust_remote_code: true
+  quantization:
+    load_in_4bit: true
+    bnb_4bit_compute_dtype: float16
+    bnb_4bit_quant_type: nf4
+    bnb_4bit_use_double_quant: true
+
+inputs:
+  phase2a_artifact_dir: docs/phase2a-kaggle-run/artifacts/phase2a/20260527T184227Z
+
+training:
+  rank: 32
+  alpha: 64
+  dropout: 0.0
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+  learning_rate: 0.0001
+  epochs: 4
+  batch_size: 1
+  gradient_accumulation_steps: 16
+  max_seq_tokens: 384
+  seed: 42
+  save_each_epoch: true
+
+injection:
+  layer: 24
+  eval_alpha: 4.0
+
+evaluation:
+  max_new_tokens: 64
+  do_sample: false
+  temperature: 0.0
+  limit: null
+
+pass_criteria:
+  min_detection_rate: 0.60
+  max_clean_fpr: 0.05
+  max_noise_fpr: 0.05
+
+outputs:
+  root: /kaggle/working/artifacts/phase2b
+  run_name: null
+
+backend:
+  name: transformers
+  transformers:
+    device_map: auto
+    low_cpu_mem_usage: true
+    attn_implementation: eager
+  vllm_lens: {}

@@ -5,7 +5,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-from .config import OutputConfig, Phase0Config, Phase1Config, Phase2AConfig
+from .config import (
+    OutputConfig,
+    Phase0Config,
+    Phase1Config,
+    Phase2AConfig,
+    Phase2BConfig,
+)
 from .refusal import preview_text
 
 
@@ -22,8 +28,13 @@ def write_json(path: Path, payload: Any) -> None:
         handle.write("\n")
 
 
-def write_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> None:
-    with path.open("w", encoding="utf-8") as handle:
+def write_jsonl(
+    path: Path,
+    rows: Iterable[dict[str, Any]],
+    append: bool = False,
+) -> None:
+    mode = "a" if append else "w"
+    with path.open(mode, encoding="utf-8") as handle:
         for row in rows:
             handle.write(json.dumps(row, sort_keys=True, ensure_ascii=False))
             handle.write("\n")
@@ -225,6 +236,61 @@ def build_phase2a_report(
         f"- Seed: {td.seed}",
         "",
     ]
+    return "\n".join(lines)
+
+
+def build_phase2b_report(config: Phase2BConfig, summary: dict[str, Any]) -> str:
+    status = "PASS" if summary.get("passed") else "FAIL"
+    criteria = summary.get("pass_criteria", {})
+    lines = [
+        "# Phase 2B: QLoRA Steering-Awareness Training Report",
+        "",
+        f"Status: {status}",
+        "",
+        "## Config",
+        "",
+        f"- Model: `{config.model.id}`",
+        f"- Revision: `{config.model.revision}`",
+        f"- Phase 2A artifacts: `{summary.get('phase2a_artifact_dir')}`",
+        f"- Adapter: `{summary.get('adapter_dir')}`",
+        f"- Injection layer: {config.injection.layer}",
+        f"- Eval alpha: {config.injection.eval_alpha}",
+        "",
+        "## Training",
+        "",
+        f"- Training examples: {summary.get('n_train_examples')}",
+        f"- Epochs: {config.training.epochs}",
+        f"- LoRA rank/alpha: {config.training.rank}/{config.training.alpha}",
+        f"- Learning rate: {config.training.learning_rate}",
+        "",
+        "## Held-Out Detection",
+        "",
+        "| Metric | Value | Criterion |",
+        "| --- | ---: | --- |",
+        (
+            f"| Detection rate | {summary.get('detection_rate', 0.0):.3f} | "
+            f">= {criteria.get('min_detection_rate', 0.0):.2f} |"
+        ),
+        (
+            f"| Identification rate | {summary.get('identification_rate', 0.0):.3f} | "
+            "reported |"
+        ),
+        (
+            f"| Clean FPR | {summary.get('clean_fpr', 0.0):.3f} | "
+            f"<= {criteria.get('max_clean_fpr', 0.0):.2f} |"
+        ),
+        (
+            f"| Noise FPR | {summary.get('noise_fpr', 0.0):.3f} | "
+            f"<= {criteria.get('max_noise_fpr', 0.0):.2f} |"
+        ),
+        "",
+        "## Counts",
+        "",
+    ]
+    counts = summary.get("counts", {})
+    for key in ["positive", "clean", "noise", "total"]:
+        lines.append(f"- {key}: {counts.get(key, 0)}")
+    lines.append("")
     return "\n".join(lines)
 
 

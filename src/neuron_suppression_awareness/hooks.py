@@ -83,6 +83,73 @@ class ResidualStreamHook:
         self.captures.append(captured)
 
 
+@dataclass
+class ResidualInjectionHook:
+    """Add residual vectors at specific token positions."""
+
+    vectors: torch.Tensor
+    token_indices: torch.Tensor
+    apply_once: bool = False
+    calls: int = 0
+    injected_calls: int = 0
+
+    def __call__(
+        self,
+        module: Any,
+        inp: tuple[Any, ...],
+        output: tuple[Any, ...] | Any,
+    ) -> tuple[Any, ...] | Any:
+        del module, inp
+        self.calls += 1
+        if self.apply_once and self.injected_calls > 0:
+            return output
+        hidden = output[0] if isinstance(output, tuple) else output
+        if not isinstance(hidden, torch.Tensor):
+            raise HookFailure(
+                "Residual injection hook expected output[0] to be a torch.Tensor, "
+                f"got {type(hidden).__name__}."
+            )
+        if hidden.dim() != 3:
+            raise HookFailure(
+                f"Expected hidden states shape [batch, seq, d_model], got {tuple(hidden.shape)}."
+            )
+        if self.vectors.dim() != 2:
+            raise HookFailure(
+                f"Expected injection vectors shape [batch, d_model], got {tuple(self.vectors.shape)}."
+            )
+        if self.vectors.shape[0] != hidden.shape[0]:
+            raise HookFailure(
+                "Injection vector batch size does not match hidden state batch size: "
+                f"{self.vectors.shape[0]} != {hidden.shape[0]}."
+            )
+        if self.vectors.shape[1] != hidden.shape[-1]:
+            raise HookFailure(
+                "Injection vector width does not match hidden state width: "
+                f"{self.vectors.shape[1]} != {hidden.shape[-1]}."
+            )
+        if self.token_indices.numel() != hidden.shape[0]:
+            raise HookFailure(
+                "token_indices length does not match batch size: "
+                f"{self.token_indices.numel()} != {hidden.shape[0]}."
+            )
+
+        modified = hidden.clone()
+        vectors = self.vectors.to(device=modified.device, dtype=modified.dtype)
+        token_indices = self.token_indices.to(device=modified.device)
+        batch_indices = torch.arange(modified.shape[0], device=modified.device)
+        if torch.any(token_indices < 0) or torch.any(token_indices >= modified.shape[1]):
+            raise HookFailure(
+                f"Injection token index out of bounds for sequence length {modified.shape[1]}."
+            )
+        modified[batch_indices, token_indices, :] = (
+            modified[batch_indices, token_indices, :] + vectors
+        )
+        self.injected_calls += 1
+        if isinstance(output, tuple):
+            return (modified, *output[1:])
+        return modified
+
+
 def get_decoder_layer(model: Any, layer_index: int) -> Any:
     try:
         return model.model.layers[layer_index]

@@ -3,9 +3,16 @@ from __future__ import annotations
 import argparse
 import sys
 
-from .backends import phase1_transformers, phase2a_transformers
+from .backends import phase1_transformers, phase2a_transformers, phase2b_transformers
 from .backends import transformers_backend, vllm_lens
-from .config import SUPPORTED_BACKENDS, Phase0Config, Phase1Config, Phase2AConfig, load_config
+from .config import (
+    SUPPORTED_BACKENDS,
+    Phase0Config,
+    Phase1Config,
+    Phase2AConfig,
+    Phase2BConfig,
+    load_config,
+)
 from .errors import NSAError, UnsupportedBackendError
 
 
@@ -33,6 +40,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         config = load_config(args.config, backend_override=args.backend)
+        if isinstance(config, Phase2BConfig):
+            if config.backend.name != "transformers":
+                raise AssertionError(f"Unhandled Phase 2B backend: {config.backend.name}")
+            result = phase2b_transformers.run_phase2b(config)
+            _print_phase2b_result(result)
+            return 0
         if isinstance(config, Phase2AConfig):
             if config.backend.name != "transformers":
                 raise AssertionError(f"Unhandled Phase 2A backend: {config.backend.name}")
@@ -94,6 +107,21 @@ def _print_phase2a_result(result: phase2a_transformers.Phase2ARunResult) -> None
     print(
         f"Training examples: {result.n_train_examples}, "
         f"Eval examples: {result.n_eval_examples}"
+    )
+
+
+def _print_phase2b_result(result: phase2b_transformers.Phase2BRunResult) -> None:
+    status = "PASS" if result.passed else "FAIL"
+    print(f"Artifacts: {result.artifact_dir}")
+    print(
+        "Phase 2B: "
+        f"detection={result.detection_rate:.3f}, "
+        f"identification={result.identification_rate:.3f}, "
+        f"clean_fpr={result.clean_fpr:.3f}, "
+        f"noise_fpr={result.noise_fpr:.3f}, "
+        f"train_n={result.n_train_examples}, "
+        f"eval_n={result.n_eval_examples}, "
+        f"status={status}"
     )
 
 
