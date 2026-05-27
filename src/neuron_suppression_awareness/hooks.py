@@ -151,21 +151,33 @@ class ResidualInjectionHook:
 
 
 def get_decoder_layer(model: Any, layer_index: int) -> Any:
-    try:
-        return model.model.layers[layer_index]
-    except Exception as exc:
-        raise LayerPathError(
-            f"Could not resolve model.model.layers[{layer_index}]. "
-            "Confirm the model architecture and zero-indexed layer numbering."
-        ) from exc
+    candidates = (
+        ("model", "layers"),
+        ("base_model", "model", "model", "layers"),
+        ("base_model", "model", "model", "model", "layers"),
+        ("base_model", "model", "layers"),
+        ("model", "model", "layers"),
+    )
+    for path in candidates:
+        layers = _resolve_attr_path(model, path)
+        if layers is None:
+            continue
+        try:
+            return layers[layer_index]
+        except Exception:
+            continue
+    raise LayerPathError(
+        f"Could not resolve decoder layer {layer_index}. "
+        "Checked common Transformers and PEFT Qwen layer paths."
+    )
 
 
 def get_down_proj_module(model: Any, layer_index: int) -> Any:
     try:
-        return model.model.layers[layer_index].mlp.down_proj
+        return get_decoder_layer(model, layer_index).mlp.down_proj
     except Exception as exc:
         raise LayerPathError(
-            f"Could not resolve model.model.layers[{layer_index}].mlp.down_proj. "
+            f"Could not resolve decoder layer {layer_index}.mlp.down_proj. "
             "Confirm the model architecture and zero-indexed layer numbering."
         ) from exc
 
@@ -178,3 +190,12 @@ def describe_down_proj_layers(model: Any) -> list[str]:
         for name, _module in model.named_modules()
         if "mlp" in name and "down_proj" in name
     ]
+
+
+def _resolve_attr_path(root: Any, path: tuple[str, ...]) -> Any | None:
+    current = root
+    for name in path:
+        if not hasattr(current, name):
+            return None
+        current = getattr(current, name)
+    return current

@@ -8,6 +8,7 @@ from neuron_suppression_awareness.errors import HookFailure, LayerPathError
 from neuron_suppression_awareness.hooks import (
     DownProjNeuronHook,
     describe_down_proj_layers,
+    get_decoder_layer,
     get_down_proj_module,
 )
 
@@ -64,3 +65,23 @@ def test_get_down_proj_module_and_describe() -> None:
 def test_get_down_proj_missing_layer() -> None:
     with pytest.raises(LayerPathError, match="Could not resolve"):
         get_down_proj_module(TinyModel(), 3)
+
+
+def test_get_decoder_layer_resolves_peft_wrapped_model() -> None:
+    class WrappedModel(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.model = TinyModel()
+
+    class BaseModel(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.model = WrappedModel()
+
+    class PeftModel(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.base_model = BaseModel()
+
+    peft_model = PeftModel()
+    assert get_decoder_layer(peft_model, 0) is peft_model.base_model.model.model.model.layers[0]
