@@ -50,6 +50,49 @@ class DownProjNeuronHook:
         return (tensor, *inp[1:])
 
 
+@dataclass
+class ResidualStreamHook:
+    """Capture full hidden state from a decoder layer's forward output."""
+
+    capture_last_token: bool = True
+    captures: list[torch.Tensor] = field(default_factory=list)
+    calls: int = 0
+
+    def __call__(
+        self,
+        module: Any,
+        inp: tuple[Any, ...],
+        output: tuple[Any, ...] | Any,
+    ) -> None:
+        del module, inp
+        self.calls += 1
+        hidden = output[0] if isinstance(output, tuple) else output
+        if not isinstance(hidden, torch.Tensor):
+            raise HookFailure(
+                "Residual stream hook expected output[0] to be a torch.Tensor, "
+                f"got {type(hidden).__name__}."
+            )
+        if hidden.dim() != 3:
+            raise HookFailure(
+                f"Expected hidden states shape [batch, seq, d_model], got {tuple(hidden.shape)}."
+            )
+        if self.capture_last_token:
+            captured = hidden[:, -1, :].detach().float().cpu().clone()
+        else:
+            captured = hidden.detach().float().cpu().clone()
+        self.captures.append(captured)
+
+
+def get_decoder_layer(model: Any, layer_index: int) -> Any:
+    try:
+        return model.model.layers[layer_index]
+    except Exception as exc:
+        raise LayerPathError(
+            f"Could not resolve model.model.layers[{layer_index}]. "
+            "Confirm the model architecture and zero-indexed layer numbering."
+        ) from exc
+
+
 def get_down_proj_module(model: Any, layer_index: int) -> Any:
     try:
         return model.model.layers[layer_index].mlp.down_proj

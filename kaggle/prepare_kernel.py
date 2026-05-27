@@ -42,6 +42,12 @@ PHASES = {
         code_file="run_phase1.py",
         slug="nsa-phase1",
     ),
+    "phase2a": PhaseKernel(
+        source_dir=ROOT / "kaggle" / "phase2a",
+        metadata_path=ROOT / "kaggle" / "phase2a" / "kernel-metadata.json",
+        code_file="run_phase2a.py",
+        slug="nsa-phase2a",
+    ),
 }
 
 
@@ -51,7 +57,7 @@ def main() -> int:
     )
     parser.add_argument(
         "phase",
-        choices=["phase0", "phase1", "all"],
+        choices=["phase0", "phase1", "phase2a", "all"],
         nargs="?",
         default="all",
         help="Which kernel metadata file to update.",

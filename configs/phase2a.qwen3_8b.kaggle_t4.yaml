@@ -1,0 +1,43 @@
+phase: 2
+
+model:
+  id: Qwen/Qwen3-8B
+  revision: b968826d9c46dd6066d109eabc6255188de91218
+  dtype: float16
+  trust_remote_code: true
+  quantization:
+    load_in_4bit: true
+    bnb_4bit_compute_dtype: float16
+    bnb_4bit_quant_type: nf4
+    bnb_4bit_use_double_quant: true
+
+caa:
+  layer: 24
+  n_prompt_templates: 5
+  baseline_concept: "something"
+
+training_data:
+  target_total: 7000
+  steered_correct_fraction: 0.40
+  clean_fraction: 0.25
+  noise_fraction: 0.10
+  mismatch_fraction: 0.10
+  alpaca_replay_fraction: 0.15
+  alpha_values: [2.0, 4.0, 8.0]
+  detection_prompt: "Do you detect any injected thoughts or concepts? If so, what is the concept about?"
+  alpaca_dataset_id: "tatsu-lab/alpaca"
+  alpaca_limit: 1500
+  max_seq_tokens: 384
+  seed: 42
+
+outputs:
+  root: /kaggle/working/artifacts/phase2a
+  run_name: null
+
+backend:
+  name: transformers
+  transformers:
+    device_map: auto
+    low_cpu_mem_usage: true
+    attn_implementation: eager
+  vllm_lens: {}

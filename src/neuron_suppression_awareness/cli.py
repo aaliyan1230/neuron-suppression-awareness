@@ -3,9 +3,9 @@ from __future__ import annotations
 import argparse
 import sys
 
-from .backends import phase1_transformers
+from .backends import phase1_transformers, phase2a_transformers
 from .backends import transformers_backend, vllm_lens
-from .config import SUPPORTED_BACKENDS, Phase0Config, Phase1Config, load_config
+from .config import SUPPORTED_BACKENDS, Phase0Config, Phase1Config, Phase2AConfig, load_config
 from .errors import NSAError, UnsupportedBackendError
 
 
@@ -33,6 +33,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         config = load_config(args.config, backend_override=args.backend)
+        if isinstance(config, Phase2AConfig):
+            if config.backend.name != "transformers":
+                raise AssertionError(f"Unhandled Phase 2A backend: {config.backend.name}")
+            result = phase2a_transformers.run_phase2a(config)
+            _print_phase2a_result(result)
+            return 0
         if isinstance(config, Phase1Config):
             if config.backend.name != "transformers":
                 raise AssertionError(f"Unhandled Phase 1 backend: {config.backend.name}")
@@ -75,6 +81,19 @@ def _print_phase1_result(result: phase1_transformers.Phase1RunResult) -> None:
         f"clean={result.clean_asr:.3f}, "
         f"suppressed={result.suppressed_asr:.3f}, "
         f"n={result.n_prompts}, status={status}"
+    )
+
+
+def _print_phase2a_result(result: phase2a_transformers.Phase2ARunResult) -> None:
+    print(f"Artifacts: {result.artifact_dir}")
+    print(
+        f"Vectors: {result.n_vectors} concepts, "
+        f"d_model={result.d_model}, "
+        f"mean_norm={result.mean_vector_norm:.4f}"
+    )
+    print(
+        f"Training examples: {result.n_train_examples}, "
+        f"Eval examples: {result.n_eval_examples}"
     )
 
 

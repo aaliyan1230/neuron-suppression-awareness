@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-from .config import OutputConfig, Phase0Config, Phase1Config
+from .config import OutputConfig, Phase0Config, Phase1Config, Phase2AConfig
 from .refusal import preview_text
 
 
@@ -175,6 +175,56 @@ def build_phase1_report(
             f"response={preview_text(str(row.get('response', '')))}"
         )
     lines.append("")
+    return "\n".join(lines)
+
+
+def build_phase2a_report(
+    config: Phase2AConfig,
+    caa_result: Any,
+    n_train: int,
+    n_eval: int,
+) -> str:
+    norms = [m["vector_norm"] for m in caa_result.metadata]
+    train_norms = [m["vector_norm"] for m in caa_result.metadata if m["split"] == "train"]
+    test_norms = [m["vector_norm"] for m in caa_result.metadata if m["split"] == "test"]
+    td = config.training_data
+    lines = [
+        "# Phase 2A: CAA Vector Extraction + Training Data Report",
+        "",
+        "## Config",
+        "",
+        f"- Model: `{config.model.id}`",
+        f"- Revision: `{config.model.revision}`",
+        f"- CAA layer: {config.caa.layer}",
+        f"- Prompt templates: {config.caa.n_prompt_templates}",
+        f"- Baseline concept: `{config.caa.baseline_concept}`",
+        "",
+        "## Vector Extraction",
+        "",
+        f"- Total concepts: {len(caa_result.concept_order)}",
+        f"- Train: {len(train_norms)}, Test: {len(test_norms)}",
+        f"- d_model: {caa_result.d_model}",
+        f"- Mean vector norm (all): {sum(norms) / len(norms):.4f}",
+        f"- Mean vector norm (train): {caa_result.mean_train_norm:.4f}",
+        f"- Min norm: {min(norms):.4f}, Max norm: {max(norms):.4f}",
+        "",
+        "## Training Data",
+        "",
+        f"- Total training examples: {n_train}",
+        f"- Total eval examples: {n_eval}",
+        "",
+        "| Condition | Fraction |",
+        "| --- | ---: |",
+        f"| steered_correct | {td.steered_correct_fraction:.0%} |",
+        f"| clean | {td.clean_fraction:.0%} |",
+        f"| noise | {td.noise_fraction:.0%} |",
+        f"| mismatch | {td.mismatch_fraction:.0%} |",
+        f"| alpaca_replay | {td.alpaca_replay_fraction:.0%} |",
+        "",
+        f"- Alpha values: {list(td.alpha_values)}",
+        f"- Seed: {td.seed}",
+        "",
+    ]
     return "\n".join(lines)
 
 

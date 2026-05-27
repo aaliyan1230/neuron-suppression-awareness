@@ -145,7 +145,43 @@ class Phase1Config:
         return replace(self, backend=replace(self.backend, name=backend_name))
 
 
-ExperimentConfig = Phase0Config | Phase1Config
+@dataclass(frozen=True)
+class CAAExtractionSettings:
+    layer: int
+    n_prompt_templates: int
+    baseline_concept: str
+
+
+@dataclass(frozen=True)
+class TrainingDataSettings:
+    target_total: int
+    steered_correct_fraction: float
+    clean_fraction: float
+    noise_fraction: float
+    mismatch_fraction: float
+    alpaca_replay_fraction: float
+    alpha_values: tuple[float, ...]
+    detection_prompt: str
+    alpaca_dataset_id: str
+    alpaca_limit: int
+    max_seq_tokens: int
+    seed: int
+
+
+@dataclass(frozen=True)
+class Phase2AConfig:
+    model: ModelConfig
+    caa: CAAExtractionSettings
+    training_data: TrainingDataSettings
+    outputs: OutputConfig
+    backend: BackendConfig
+    source_path: Path | None = None
+
+    def with_backend(self, backend_name: str) -> "Phase2AConfig":
+        return replace(self, backend=replace(self.backend, name=backend_name))
+
+
+ExperimentConfig = Phase0Config | Phase1Config | Phase2AConfig
 
 
 def load_config(path: str | Path, backend_override: str | None = None) -> ExperimentConfig:
@@ -163,7 +199,9 @@ def parse_config(raw: dict[str, Any], source_path: Path | None = None) -> Experi
         return parse_phase0_config(raw, source_path=source_path)
     if phase == 1:
         return parse_phase1_config(raw, source_path=source_path)
-    raise ConfigError(f"Unsupported phase {phase}. Expected 0 or 1.")
+    if phase == 2:
+        return parse_phase2a_config(raw, source_path=source_path)
+    raise ConfigError(f"Unsupported phase {phase}. Expected 0, 1, or 2.")
 
 
 def parse_phase0_config(
@@ -318,6 +356,71 @@ def parse_phase1_config(
     )
 
 
+def parse_phase2a_config(
+    raw: dict[str, Any], source_path: Path | None = None
+) -> Phase2AConfig:
+    model_raw = _mapping(raw, "model")
+    caa_raw = _mapping(raw, "caa")
+    td_raw = _mapping(raw, "training_data")
+    outputs_raw = _mapping(raw, "outputs")
+    backend_raw = _mapping(raw, "backend")
+
+    alpha_raw = _required(td_raw, "alpha_values", "training_data")
+    if not isinstance(alpha_raw, list | tuple) or not alpha_raw:
+        raise ConfigError("training_data.alpha_values must be a non-empty list.")
+
+    return Phase2AConfig(
+        model=_parse_model_config(model_raw, "model"),
+        caa=CAAExtractionSettings(
+            layer=int(_required(caa_raw, "layer", "caa")),
+            n_prompt_templates=int(_required(caa_raw, "n_prompt_templates", "caa")),
+            baseline_concept=str(caa_raw.get("baseline_concept", "something")),
+        ),
+        training_data=TrainingDataSettings(
+            target_total=int(_required(td_raw, "target_total", "training_data")),
+            steered_correct_fraction=float(
+                _required(td_raw, "steered_correct_fraction", "training_data")
+            ),
+            clean_fraction=float(
+                _required(td_raw, "clean_fraction", "training_data")
+            ),
+            noise_fraction=float(
+                _required(td_raw, "noise_fraction", "training_data")
+            ),
+            mismatch_fraction=float(
+                _required(td_raw, "mismatch_fraction", "training_data")
+            ),
+            alpaca_replay_fraction=float(
+                _required(td_raw, "alpaca_replay_fraction", "training_data")
+            ),
+            alpha_values=tuple(float(v) for v in alpha_raw),
+            detection_prompt=str(
+                _required(td_raw, "detection_prompt", "training_data")
+            ),
+            alpaca_dataset_id=str(
+                td_raw.get("alpaca_dataset_id", "tatsu-lab/alpaca")
+            ),
+            alpaca_limit=int(td_raw.get("alpaca_limit", 1500)),
+            max_seq_tokens=int(td_raw.get("max_seq_tokens", 384)),
+            seed=int(td_raw.get("seed", 42)),
+        ),
+        outputs=OutputConfig(
+            root=Path(str(_required(outputs_raw, "root", "outputs"))),
+            run_name=(
+                None
+                if outputs_raw.get("run_name") is None
+                else str(outputs_raw.get("run_name"))
+            ),
+        ),
+        backend=BackendConfig(
+            name=str(backend_raw.get("name", "transformers")),
+            transformers=dict(backend_raw.get("transformers", {})),
+            vllm_lens=dict(backend_raw.get("vllm_lens", {})),
+        ),
+        source_path=source_path,
+    )
+
+
 def validate_config(config: ExperimentConfig) -> None:
     if config.backend.name not in SUPPORTED_BACKENDS:
         raise ConfigError(
@@ -326,6 +429,9 @@ def validate_config(config: ExperimentConfig) -> None:
         )
     if isinstance(config, Phase1Config):
         _validate_phase1_config(config)
+        return
+    if isinstance(config, Phase2AConfig):
+        _validate_phase2a_config(config)
         return
     if config.phase0.layer < 0:
         raise ConfigError("phase0.layer must be non-negative.")
@@ -372,6 +478,42 @@ def _validate_phase1_config(config: Phase1Config) -> None:
         raise ConfigError("pass_criteria.min_suppressed_asr must be between 0 and 1.")
     if not 0.0 <= config.pass_criteria.max_clean_asr <= 1.0:
         raise ConfigError("pass_criteria.max_clean_asr must be between 0 and 1.")
+
+
+def _validate_phase2a_config(config: Phase2AConfig) -> None:
+    if config.backend.name != "transformers":
+        raise ConfigError("Phase 2A currently supports only the transformers backend.")
+    if config.caa.layer < 0:
+        raise ConfigError("caa.layer must be non-negative.")
+    if config.caa.n_prompt_templates <= 0:
+        raise ConfigError("caa.n_prompt_templates must be positive.")
+    td = config.training_data
+    fractions = (
+        td.steered_correct_fraction
+        + td.clean_fraction
+        + td.noise_fraction
+        + td.mismatch_fraction
+        + td.alpaca_replay_fraction
+    )
+    if abs(fractions - 1.0) > 0.001:
+        raise ConfigError(
+            f"Training data fractions must sum to 1.0, got {fractions:.4f}."
+        )
+    for name, val in [
+        ("steered_correct_fraction", td.steered_correct_fraction),
+        ("clean_fraction", td.clean_fraction),
+        ("noise_fraction", td.noise_fraction),
+        ("mismatch_fraction", td.mismatch_fraction),
+        ("alpaca_replay_fraction", td.alpaca_replay_fraction),
+    ]:
+        if not 0.0 <= val <= 1.0:
+            raise ConfigError(f"training_data.{name} must be between 0 and 1.")
+    if td.target_total <= 0:
+        raise ConfigError("training_data.target_total must be positive.")
+    if not td.alpha_values:
+        raise ConfigError("training_data.alpha_values must be non-empty.")
+    if any(a <= 0 for a in td.alpha_values):
+        raise ConfigError("training_data.alpha_values must all be positive.")
 
 
 def _parse_model_config(raw: dict[str, Any], path: str) -> ModelConfig:
