@@ -61,7 +61,9 @@ def test_load_prompt_records_uses_text_fields() -> None:
     assert [record.prompt_id for record in records] == ["harmful-0", "harmful-1"]
 
 
-def test_load_prompt_records_passes_dataset_name() -> None:
+def test_load_prompt_records_passes_dataset_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.delenv("HUGGING_FACE_HUB_TOKEN", raising=False)
     config = TextDatasetConfig(
         id="fake",
         name="config-name",
