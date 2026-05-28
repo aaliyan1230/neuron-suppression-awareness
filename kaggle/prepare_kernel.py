@@ -54,6 +54,12 @@ PHASES = {
         code_file="run_phase2b.py",
         slug="nsa-phase2b",
     ),
+    "phase3": PhaseKernel(
+        source_dir=ROOT / "kaggle" / "phase3",
+        metadata_path=ROOT / "kaggle" / "phase3" / "kernel-metadata.json",
+        code_file="run_phase3.py",
+        slug="nsa-phase3",
+    ),
 }
 
 
@@ -63,7 +69,7 @@ def main() -> int:
     )
     parser.add_argument(
         "phase",
-        choices=["phase0", "phase1", "phase2a", "phase2b", "all"],
+        choices=["phase0", "phase1", "phase2a", "phase2b", "phase3", "all"],
         nargs="?",
         default="all",
         help="Which kernel metadata file to update.",
@@ -90,6 +96,14 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--phase2b-adapter-dataset",
+        default=None,
+        help=(
+            "Optional private dataset source containing Phase 2B adapter for Phase 3. "
+            "Use 'auto' for USERNAME/nsa-phase2b-adapter."
+        ),
+    )
+    parser.add_argument(
         "--out-root",
         type=Path,
         default=DEFAULT_OUT_ROOT,
@@ -103,6 +117,10 @@ def main() -> int:
         args.phase2a_artifact_dataset,
         username,
     )
+    phase2b_adapter_dataset = _resolve_phase2b_adapter_dataset(
+        args.phase2b_adapter_dataset,
+        username,
+    )
     selected = PHASES.items() if args.phase == "all" else [(args.phase, PHASES[args.phase])]
     for phase, kernel in selected:
         output_dir = build_push_dir(
@@ -111,6 +129,7 @@ def main() -> int:
             username=username,
             hf_token_dataset=hf_token_dataset,
             phase2a_artifact_dataset=phase2a_artifact_dataset,
+            phase2b_adapter_dataset=phase2b_adapter_dataset,
             out_root=args.out_root,
         )
         print(f"{phase}: {username}/{kernel.slug} -> {output_dir}")
@@ -150,7 +169,8 @@ def build_push_dir(
     username: str,
     hf_token_dataset: str | None,
     phase2a_artifact_dataset: str | None,
-    out_root: Path,
+    phase2b_adapter_dataset: str | None = None,
+    out_root: Path = DEFAULT_OUT_ROOT,
 ) -> Path:
     output_dir = out_root / phase
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -171,6 +191,11 @@ def build_push_dir(
         if phase2a_artifact_dataset not in sources:
             sources.append(phase2a_artifact_dataset)
         payload["dataset_sources"] = sources
+    if phase == "phase3" and phase2b_adapter_dataset:
+        sources = list(payload.get("dataset_sources", []))
+        if phase2b_adapter_dataset not in sources:
+            sources.append(phase2b_adapter_dataset)
+        payload["dataset_sources"] = sources
     (output_dir / "kernel-metadata.json").write_text(
         json.dumps(payload, indent=2) + "\n",
         encoding="utf-8",
@@ -183,6 +208,14 @@ def _resolve_token_dataset(value: str | None, username: str) -> str | None:
         return None
     if value == "auto":
         return f"{username}/nsa-hf-token"
+    return value
+
+
+def _resolve_phase2b_adapter_dataset(value: str | None, username: str) -> str | None:
+    if value is None:
+        return None
+    if value == "auto":
+        return f"{username}/nsa-phase2b-adapter"
     return value
 
 

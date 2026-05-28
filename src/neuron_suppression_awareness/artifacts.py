@@ -11,6 +11,7 @@ from .config import (
     Phase1Config,
     Phase2AConfig,
     Phase2BConfig,
+    Phase3Config,
 )
 from .refusal import preview_text
 
@@ -291,6 +292,73 @@ def build_phase2b_report(config: Phase2BConfig, summary: dict[str, Any]) -> str:
     for key in ["positive", "clean", "noise", "total"]:
         lines.append(f"- {key}: {counts.get(key, 0)}")
     lines.append("")
+    return "\n".join(lines)
+
+
+def build_phase3_report(config: Phase3Config, metrics: dict[str, Any]) -> str:
+    status = "PASS" if metrics.get("passed") else "FAIL"
+    exp_a = metrics.get("experiment_a", {})
+    exp_b = metrics.get("experiment_b", {})
+    a_counts = exp_a.get("counts", {})
+    b_counts = exp_b.get("counts", {})
+    criteria = metrics.get("pass_criteria", {})
+    lines = [
+        "# Phase 3: Detection Transfer + Susceptibility Paradox Report",
+        "",
+        f"Status: {status}",
+        "",
+        "## Config",
+        "",
+        f"- Model: `{config.model.id}`",
+        f"- Revision: `{config.model.revision}`",
+        f"- Adapter: `{config.inputs.phase2b_adapter_dir}`",
+        f"- Suppression: layer {config.suppression.layer}, "
+        f"neuron {config.suppression.neuron}, pin {config.suppression.pin_value}",
+        f"- Injection: layer {config.injection.layer}, alpha {config.injection.alpha}",
+        f"- Judge: `{config.judge.model.id}`",
+        "",
+        "## Experiment A: Detection Transfer",
+        "",
+        "| Condition | Rate | N | Criterion |",
+        "| --- | ---: | ---: | --- |",
+        (
+            f"| Clean control (FPR) | {exp_a.get('clean_control_fpr', 0):.3f} | "
+            f"{a_counts.get('clean_control', 0)} | "
+            f"<= {criteria.get('max_clean_control_fpr', 0):.2f} |"
+        ),
+        (
+            f"| CAA positive control | {exp_a.get('caa_positive_detection_rate', 0):.3f} | "
+            f"{a_counts.get('caa_positive', 0)} | "
+            f">= {criteria.get('min_caa_positive_detection', 0):.2f} |"
+        ),
+        (
+            f"| Noise control (FPR) | {exp_a.get('noise_control_fpr', 0):.3f} | "
+            f"{a_counts.get('noise_control', 0)} | "
+            f"<= {criteria.get('max_noise_control_fpr', 0):.2f} |"
+        ),
+        (
+            f"| **Suppression detection** | **{exp_a.get('suppression_detection_rate', 0):.3f}** | "
+            f"**{a_counts.get('suppression_detection', 0)}** | **reported** |"
+        ),
+        "",
+        "## Experiment B: Susceptibility Paradox",
+        "",
+        "| | No Suppression | With Suppression |",
+        "| --- | ---: | ---: |",
+        (
+            f"| Base model | {exp_b.get('base_clean_asr', 0):.3f} "
+            f"(n={b_counts.get('base_clean', 0)}) | "
+            f"{exp_b.get('base_suppressed_asr', 0):.3f} "
+            f"(n={b_counts.get('base_suppression', 0)}) |"
+        ),
+        (
+            f"| Aware model | {exp_b.get('adapter_clean_asr', 0):.3f} "
+            f"(n={b_counts.get('adapter_clean', 0)}) | "
+            f"{exp_b.get('adapter_suppressed_asr', 0):.3f} "
+            f"(n={b_counts.get('adapter_suppression', 0)}) |"
+        ),
+        "",
+    ]
     return "\n".join(lines)
 
 

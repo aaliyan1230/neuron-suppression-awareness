@@ -3,14 +3,21 @@ from __future__ import annotations
 import argparse
 import sys
 
-from .backends import phase1_transformers, phase2a_transformers, phase2b_transformers
-from .backends import transformers_backend, vllm_lens
+from .backends import (
+    phase1_transformers,
+    phase2a_transformers,
+    phase2b_transformers,
+    phase3_transformers,
+    transformers_backend,
+    vllm_lens,
+)
 from .config import (
     SUPPORTED_BACKENDS,
     Phase0Config,
     Phase1Config,
     Phase2AConfig,
     Phase2BConfig,
+    Phase3Config,
     load_config,
 )
 from .errors import NSAError, UnsupportedBackendError
@@ -40,6 +47,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         config = load_config(args.config, backend_override=args.backend)
+        if isinstance(config, Phase3Config):
+            if config.backend.name != "transformers":
+                raise AssertionError(f"Unhandled Phase 3 backend: {config.backend.name}")
+            result = phase3_transformers.run_phase3(config)
+            _print_phase3_result(result)
+            return 0
         if isinstance(config, Phase2BConfig):
             if config.backend.name != "transformers":
                 raise AssertionError(f"Unhandled Phase 2B backend: {config.backend.name}")
@@ -123,6 +136,26 @@ def _print_phase2b_result(result: phase2b_transformers.Phase2BRunResult) -> None
         f"eval_n={result.n_eval_examples}, "
         f"status={status}"
     )
+
+
+def _print_phase3_result(result: phase3_transformers.Phase3RunResult) -> None:
+    status = "PASS" if result.passed else "FAIL"
+    print(f"Artifacts: {result.artifact_dir}")
+    print(
+        "Experiment A: "
+        f"clean_fpr={result.clean_control_fpr:.3f}, "
+        f"caa_det={result.caa_positive_detection_rate:.3f}, "
+        f"noise_fpr={result.noise_control_fpr:.3f}, "
+        f"suppression_det={result.suppression_detection_rate:.3f}"
+    )
+    print(
+        "Experiment B: "
+        f"base_clean={result.base_clean_asr:.3f}, "
+        f"base_supp={result.base_suppressed_asr:.3f}, "
+        f"adapter_clean={result.adapter_clean_asr:.3f}, "
+        f"adapter_supp={result.adapter_suppressed_asr:.3f}"
+    )
+    print(f"n={result.n_prompts}, status={status}")
 
 
 if __name__ == "__main__":
