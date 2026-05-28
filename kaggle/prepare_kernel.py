@@ -191,6 +191,11 @@ def build_push_dir(
         if phase2a_artifact_dataset not in sources:
             sources.append(phase2a_artifact_dataset)
         payload["dataset_sources"] = sources
+    if phase == "phase3" and phase2a_artifact_dataset:
+        sources = list(payload.get("dataset_sources", []))
+        if phase2a_artifact_dataset not in sources:
+            sources.append(phase2a_artifact_dataset)
+        payload["dataset_sources"] = sources
     if phase == "phase3" and phase2b_adapter_dataset:
         sources = list(payload.get("dataset_sources", []))
         if phase2b_adapter_dataset not in sources:
