@@ -110,6 +110,14 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--phase4-prompt-dataset",
+        default=None,
+        help=(
+            "Optional private dataset source containing Phase 4 prompt JSONL files. "
+            "Use 'auto' for USERNAME/nsa-phase4-prompts."
+        ),
+    )
+    parser.add_argument(
         "--out-root",
         type=Path,
         default=DEFAULT_OUT_ROOT,
@@ -127,6 +135,10 @@ def main() -> int:
         args.phase2b_adapter_dataset,
         username,
     )
+    phase4_prompt_dataset = _resolve_phase4_prompt_dataset(
+        args.phase4_prompt_dataset,
+        username,
+    )
     selected = PHASES.items() if args.phase == "all" else [(args.phase, PHASES[args.phase])]
     for phase, kernel in selected:
         output_dir = build_push_dir(
@@ -136,6 +148,7 @@ def main() -> int:
             hf_token_dataset=hf_token_dataset,
             phase2a_artifact_dataset=phase2a_artifact_dataset,
             phase2b_adapter_dataset=phase2b_adapter_dataset,
+            phase4_prompt_dataset=phase4_prompt_dataset,
             out_root=args.out_root,
         )
         print(f"{phase}: {username}/{kernel.slug} -> {output_dir}")
@@ -176,6 +189,7 @@ def build_push_dir(
     hf_token_dataset: str | None,
     phase2a_artifact_dataset: str | None,
     phase2b_adapter_dataset: str | None = None,
+    phase4_prompt_dataset: str | None = None,
     out_root: Path = DEFAULT_OUT_ROOT,
 ) -> Path:
     output_dir = out_root / phase
@@ -207,6 +221,11 @@ def build_push_dir(
         if phase2b_adapter_dataset not in sources:
             sources.append(phase2b_adapter_dataset)
         payload["dataset_sources"] = sources
+    if phase == "phase4" and phase4_prompt_dataset:
+        sources = list(payload.get("dataset_sources", []))
+        if phase4_prompt_dataset not in sources:
+            sources.append(phase4_prompt_dataset)
+        payload["dataset_sources"] = sources
     (output_dir / "kernel-metadata.json").write_text(
         json.dumps(payload, indent=2) + "\n",
         encoding="utf-8",
@@ -235,6 +254,14 @@ def _resolve_phase2a_dataset(value: str | None, username: str) -> str | None:
         return None
     if value == "auto":
         return f"{username}/nsa-phase2a-artifacts"
+    return value
+
+
+def _resolve_phase4_prompt_dataset(value: str | None, username: str) -> str | None:
+    if value is None:
+        return None
+    if value == "auto":
+        return f"{username}/nsa-phase4-prompts"
     return value
 
 

@@ -61,6 +61,28 @@ def test_load_prompt_records_uses_text_fields() -> None:
     assert [record.prompt_id for record in records] == ["harmful-0", "harmful-1"]
 
 
+def test_load_prompt_records_from_local_jsonl(tmp_path) -> None:
+    path = tmp_path / "prompts.jsonl"
+    path.write_text(
+        '{"prompt_id": "p0", "prompt": "first", "row_index": 10}\n'
+        '{"prompt_id": "p1", "prompt": "second", "row_index": 11}\n',
+        encoding="utf-8",
+    )
+    config = TextDatasetConfig(
+        id=str(path),
+        split="train",
+        limit=2,
+        text_fields=("prompt",),
+    )
+
+    records = load_prompt_records(config, "harmful")
+
+    assert [record.prompt_id for record in records] == ["p0", "p1"]
+    assert [record.text for record in records] == ["first", "second"]
+    assert records[0].dataset_id == str(path)
+    assert records[0].row_index == 10
+
+
 def test_load_prompt_records_passes_dataset_name(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("HF_TOKEN", raising=False)
     monkeypatch.delenv("HUGGING_FACE_HUB_TOKEN", raising=False)

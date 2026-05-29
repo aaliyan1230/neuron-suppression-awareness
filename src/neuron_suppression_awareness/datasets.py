@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from .config import DatasetConfig, TextDatasetConfig
@@ -34,6 +36,10 @@ def load_prompt_records(
     source: str,
     load_dataset_fn: LoadDatasetFn | None = None,
 ) -> list[PromptRecord]:
+    local_path = Path(config.id)
+    if local_path.exists():
+        return _load_local_prompt_records(local_path, config, source)
+
     token = _hf_token()
     if config.requires_hf_token and not token:
         raise DatasetAccessError(
@@ -87,6 +93,54 @@ def load_prompt_records(
     if len(records) < config.limit:
         raise DatasetAccessError(
             f"Dataset {config.id!r} yielded {len(records)} usable {source} prompts; "
+            f"expected {config.limit}. Check text_fields={config.text_fields!r}."
+        )
+    return records
+
+
+def _load_local_prompt_records(
+    path: Path,
+    config: TextDatasetConfig,
+    source: str,
+) -> list[PromptRecord]:
+    if not path.is_file():
+        raise DatasetAccessError(f"Local prompt dataset path is not a file: {path}")
+
+    records: list[PromptRecord] = []
+    with path.open("r", encoding="utf-8") as handle:
+        for row_index, line in enumerate(handle):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                row = json.loads(stripped)
+            except json.JSONDecodeError as exc:
+                raise DatasetAccessError(
+                    f"Local prompt dataset {path} contains invalid JSONL at line "
+                    f"{row_index + 1}: {exc}"
+                ) from exc
+            if not isinstance(row, dict):
+                raise DatasetAccessError(
+                    f"Local prompt dataset {path} line {row_index + 1} is not an object."
+                )
+            text = extract_prompt_text(row, config)
+            if not text:
+                continue
+            records.append(
+                PromptRecord(
+                    prompt_id=str(row.get("prompt_id") or f"{source}-{len(records)}"),
+                    source=source,
+                    text=text,
+                    dataset_id=str(path),
+                    row_index=int(row.get("row_index", row_index)),
+                )
+            )
+            if len(records) >= config.limit:
+                break
+
+    if len(records) < config.limit:
+        raise DatasetAccessError(
+            f"Local prompt dataset {path} yielded {len(records)} usable {source} prompts; "
             f"expected {config.limit}. Check text_fields={config.text_fields!r}."
         )
     return records

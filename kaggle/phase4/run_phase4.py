@@ -17,6 +17,10 @@ PHASE2A_REQUIRED_FILES = {
 }
 
 PHASE2B_ADAPTER_MARKER = "adapter_config.json"
+PHASE4_PROMPT_FILES = {
+    "harmful": "harmful_prompts.jsonl",
+    "harmless": "harmless_prompts.jsonl",
+}
 
 
 def install_deps():
@@ -95,15 +99,23 @@ def prepare_phase4_config():
     source = "/tmp/nsa/configs/phase4.qwen3_8b.kaggle_t4.yaml"
     phase2a_artifact_dir = resolve_phase2a_artifact_dir()
     phase2b_adapter_dir = resolve_phase2b_adapter_dir()
+    prompt_paths = resolve_phase4_prompt_paths()
     with open(source, "r", encoding="utf-8") as handle:
         payload = yaml.safe_load(handle)
     payload["inputs"]["phase2a_artifact_dir"] = phase2a_artifact_dir
     payload["inputs"]["phase2b_adapter_dir"] = phase2b_adapter_dir
+    payload["prompts"]["harmful"]["id"] = prompt_paths["harmful"]
+    payload["prompts"]["harmful"]["text_fields"] = ["prompt"]
+    payload["prompts"]["harmful"].pop("input_field", None)
+    payload["prompts"]["harmless"]["id"] = prompt_paths["harmless"]
+    payload["prompts"]["harmless"]["text_fields"] = ["prompt"]
+    payload["prompts"]["harmless"].pop("input_field", None)
     output = "/kaggle/working/phase4_config.yaml"
     with open(output, "w", encoding="utf-8") as handle:
         yaml.safe_dump(payload, handle, sort_keys=False)
     print(f"Phase 2A artifacts resolved to {phase2a_artifact_dir}")
     print(f"Phase 2B adapter resolved to {phase2b_adapter_dir}")
+    print(f"Phase 4 prompts resolved to {prompt_paths}")
     print(f"Phase 4 runtime config written to {output}")
     return output
 
@@ -132,6 +144,20 @@ def resolve_phase2b_adapter_dir():
     raise RuntimeError(
         "Could not find Phase 2B adapter. Attach a Kaggle dataset containing "
         "adapter_config.json, such as USERNAME/nsa-phase2b-adapter."
+    )
+
+
+def resolve_phase4_prompt_paths():
+    for root, _dirs, files in os.walk("/kaggle/input"):
+        file_set = set(files)
+        if set(PHASE4_PROMPT_FILES.values()).issubset(file_set):
+            return {
+                source: os.path.join(root, filename)
+                for source, filename in PHASE4_PROMPT_FILES.items()
+            }
+    raise RuntimeError(
+        "Could not find Phase 4 prompt dataset. Attach a Kaggle dataset containing "
+        "harmful_prompts.jsonl and harmless_prompts.jsonl."
     )
 
 
