@@ -60,6 +60,12 @@ PHASES = {
         code_file="run_phase3.py",
         slug="nsa-phase3",
     ),
+    "phase4": PhaseKernel(
+        source_dir=ROOT / "kaggle" / "phase4",
+        metadata_path=ROOT / "kaggle" / "phase4" / "kernel-metadata.json",
+        code_file="run_phase4.py",
+        slug="nsa-phase4",
+    ),
 }
 
 
@@ -69,7 +75,7 @@ def main() -> int:
     )
     parser.add_argument(
         "phase",
-        choices=["phase0", "phase1", "phase2a", "phase2b", "phase3", "all"],
+        choices=["phase0", "phase1", "phase2a", "phase2b", "phase3", "phase4", "all"],
         nargs="?",
         default="all",
         help="Which kernel metadata file to update.",
@@ -99,7 +105,7 @@ def main() -> int:
         "--phase2b-adapter-dataset",
         default=None,
         help=(
-            "Optional private dataset source containing Phase 2B adapter for Phase 3. "
+            "Optional private dataset source containing Phase 2B adapter for Phase 3/4. "
             "Use 'auto' for USERNAME/nsa-phase2b-adapter."
         ),
     )
@@ -191,12 +197,12 @@ def build_push_dir(
         if phase2a_artifact_dataset not in sources:
             sources.append(phase2a_artifact_dataset)
         payload["dataset_sources"] = sources
-    if phase == "phase3" and phase2a_artifact_dataset:
+    if phase in {"phase3", "phase4"} and phase2a_artifact_dataset:
         sources = list(payload.get("dataset_sources", []))
         if phase2a_artifact_dataset not in sources:
             sources.append(phase2a_artifact_dataset)
         payload["dataset_sources"] = sources
-    if phase == "phase3" and phase2b_adapter_dataset:
+    if phase in {"phase3", "phase4"} and phase2b_adapter_dataset:
         sources = list(payload.get("dataset_sources", []))
         if phase2b_adapter_dataset not in sources:
             sources.append(phase2b_adapter_dataset)

@@ -12,6 +12,7 @@ from .config import (
     Phase2AConfig,
     Phase2BConfig,
     Phase3Config,
+    Phase4Config,
 )
 from .refusal import preview_text
 
@@ -362,5 +363,95 @@ def build_phase3_report(config: Phase3Config, metrics: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def build_phase4_report(config: Phase4Config, summary: dict[str, Any]) -> str:
+    geometry = summary.get("geometry", {}).get("by_model_and_layer", {})
+    probes = summary.get("probe_results", {}).get("by_model_and_layer", {})
+    lines = [
+        "# Phase 4: Mechanistic Geometry + Linear Probing Report",
+        "",
+        "## Config",
+        "",
+        f"- Model: `{config.model.id}`",
+        f"- Revision: `{config.model.revision}`",
+        f"- Phase 2A artifacts: `{config.inputs.phase2a_artifact_dir}`",
+        f"- Phase 2B adapter: `{config.inputs.phase2b_adapter_dir}`",
+        f"- Model variants: {', '.join(config.analysis.model_variants)}",
+        f"- Captured layers: {', '.join(str(layer) for layer in config.analysis.layers)}",
+        f"- Capture position: `{config.analysis.capture_position}`",
+        (
+            "- Suppression: "
+            f"layer {config.suppression.layer}, neuron {config.suppression.neuron}, "
+            f"pin {config.suppression.pin_value}"
+        ),
+        f"- CAA: layer {config.injection.layer}, alpha {config.injection.alpha}",
+        "",
+        "## Geometry Summary",
+        "",
+        "| Model | Layer | Suppression L2 | CAA L2 | Supp/CAA Ratio | Supp-CAA Cosine | Supp-Raw CAA Cosine |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+    ]
+    for variant in config.analysis.model_variants:
+        for layer in config.analysis.layers:
+            layer_summary = geometry.get(variant, {}).get(str(layer), {})
+            lines.append(
+                "| "
+                f"{variant} | {layer} | "
+                f"{_fmt_summary_mean(layer_summary.get('suppression_delta_l2'))} | "
+                f"{_fmt_summary_mean(layer_summary.get('caa_delta_l2'))} | "
+                f"{_fmt_summary_mean(layer_summary.get('suppression_to_caa_l2_ratio'))} | "
+                f"{_fmt_summary_mean(layer_summary.get('suppression_to_caa_delta_cosine'))} | "
+                f"{_fmt_summary_mean(layer_summary.get('suppression_to_raw_caa_cosine'))} |"
+            )
+    lines.extend(
+        [
+            "",
+            "## Linear Probe Summary",
+            "",
+            "| Model | Layer | Test Accuracy | Balanced Accuracy | AUROC | Confusion |",
+            "| --- | ---: | ---: | ---: | ---: | --- |",
+        ]
+    )
+    for variant in config.analysis.model_variants:
+        for layer in config.analysis.layers:
+            probe = probes.get(variant, {}).get(str(layer), {}).get("test", {})
+            confusion = probe.get("confusion", {})
+            lines.append(
+                "| "
+                f"{variant} | {layer} | "
+                f"{_fmt_float(probe.get('accuracy'))} | "
+                f"{_fmt_float(probe.get('balanced_accuracy'))} | "
+                f"{_fmt_float(probe.get('auroc'))} | "
+                f"tp={confusion.get('tp', 0)}, tn={confusion.get('tn', 0)}, "
+                f"fp={confusion.get('fp', 0)}, fn={confusion.get('fn', 0)} |"
+            )
+    lines.extend(
+        [
+            "",
+            "## Interpretation Guide",
+            "",
+            "- Small suppression L2 at layer 24 with failed probes supports an informational invisibility explanation.",
+            "- Large but low-cosine suppression deltas support a subspace mismatch explanation.",
+            "- Successful probes with failed self-report support an introspective readout failure explanation.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def _unsafe_count(rows: list[dict[str, Any]]) -> int:
     return sum(1 for row in rows if row.get("verdict") == "unsafe")
+
+
+def _fmt_summary_mean(summary: Any) -> str:
+    if not isinstance(summary, dict):
+        return "n/a"
+    return _fmt_float(summary.get("mean"))
+
+
+def _fmt_float(value: Any) -> str:
+    if value is None:
+        return "n/a"
+    try:
+        return f"{float(value):.4f}"
+    except (TypeError, ValueError):
+        return "n/a"

@@ -1,0 +1,61 @@
+phase: 4
+
+model:
+  id: Qwen/Qwen3-8B
+  revision: b968826d9c46dd6066d109eabc6255188de91218
+  dtype: float16
+  trust_remote_code: true
+  quantization:
+    load_in_4bit: true
+    bnb_4bit_compute_dtype: float16
+    bnb_4bit_quant_type: nf4
+    bnb_4bit_use_double_quant: true
+
+inputs:
+  phase2a_artifact_dir: docs/phase2a-kaggle-run/artifacts/phase2a/20260527T184227Z
+  phase2b_adapter_dir: /kaggle/input/nsa-phase2b-adapter/adapter_final
+
+suppression:
+  layer: 14
+  neuron: 7924
+  pin_value: 20.0
+
+injection:
+  layer: 24
+  alpha: 4.0
+
+prompts:
+  harmful:
+    id: walledai/AdvBench
+    split: train
+    limit: 50
+    text_fields: [prompt]
+    requires_hf_token: false
+  harmless:
+    id: tatsu-lab/alpaca
+    split: train
+    limit: 50
+    text_fields: [instruction]
+    input_field: input
+    requires_hf_token: false
+
+analysis:
+  layers: [14, 18, 24, 30]
+  model_variants: [base, adapter]
+  capture_position: last_prompt_token
+  probe_train_fraction: 0.7
+  probe_epochs: 200
+  probe_learning_rate: 0.001
+  seed: 42
+
+outputs:
+  root: /kaggle/working/artifacts/phase4
+  run_name: null
+
+backend:
+  name: transformers
+  transformers:
+    device_map: auto
+    low_cpu_mem_usage: true
+    attn_implementation: eager
+  vllm_lens: {}

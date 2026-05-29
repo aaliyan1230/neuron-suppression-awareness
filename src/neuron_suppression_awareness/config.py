@@ -285,7 +285,53 @@ class Phase3Config:
         return replace(self, backend=replace(self.backend, name=backend_name))
 
 
-ExperimentConfig = Phase0Config | Phase1Config | Phase2AConfig | Phase2BConfig | Phase3Config
+@dataclass(frozen=True)
+class Phase4Inputs:
+    phase2a_artifact_dir: Path
+    phase2b_adapter_dir: Path
+
+
+@dataclass(frozen=True)
+class Phase4PromptSettings:
+    harmful: TextDatasetConfig
+    harmless: TextDatasetConfig
+
+
+@dataclass(frozen=True)
+class Phase4AnalysisSettings:
+    layers: tuple[int, ...]
+    model_variants: tuple[str, ...]
+    capture_position: str
+    probe_train_fraction: float
+    probe_epochs: int
+    probe_learning_rate: float
+    seed: int
+
+
+@dataclass(frozen=True)
+class Phase4Config:
+    model: ModelConfig
+    inputs: Phase4Inputs
+    suppression: SuppressionSettings
+    injection: Phase3InjectionSettings
+    prompts: Phase4PromptSettings
+    analysis: Phase4AnalysisSettings
+    outputs: OutputConfig
+    backend: BackendConfig
+    source_path: Path | None = None
+
+    def with_backend(self, backend_name: str) -> "Phase4Config":
+        return replace(self, backend=replace(self.backend, name=backend_name))
+
+
+ExperimentConfig = (
+    Phase0Config
+    | Phase1Config
+    | Phase2AConfig
+    | Phase2BConfig
+    | Phase3Config
+    | Phase4Config
+)
 
 
 def load_config(path: str | Path, backend_override: str | None = None) -> ExperimentConfig:
@@ -310,7 +356,9 @@ def parse_config(raw: dict[str, Any], source_path: Path | None = None) -> Experi
         return parse_phase2b_config(raw, source_path=source_path)
     if phase == "3":
         return parse_phase3_config(raw, source_path=source_path)
-    raise ConfigError(f"Unsupported phase {phase_raw}. Expected 0, 1, 2, 2b, or 3.")
+    if phase == "4":
+        return parse_phase4_config(raw, source_path=source_path)
+    raise ConfigError(f"Unsupported phase {phase_raw}. Expected 0, 1, 2, 2b, 3, or 4.")
 
 
 def parse_phase0_config(
@@ -700,6 +748,80 @@ def parse_phase3_config(
     )
 
 
+def parse_phase4_config(
+    raw: dict[str, Any], source_path: Path | None = None
+) -> Phase4Config:
+    model_raw = _mapping(raw, "model")
+    inputs_raw = _mapping(raw, "inputs")
+    suppression_raw = _mapping(raw, "suppression")
+    injection_raw = _mapping(raw, "injection")
+    prompts_raw = _mapping(raw, "prompts")
+    analysis_raw = _mapping(raw, "analysis")
+    outputs_raw = _mapping(raw, "outputs")
+    backend_raw = _mapping(raw, "backend")
+
+    layers_raw = _required(analysis_raw, "layers", "analysis")
+    if not isinstance(layers_raw, list | tuple) or not layers_raw:
+        raise ConfigError("analysis.layers must be a non-empty list.")
+    variants_raw = _required(analysis_raw, "model_variants", "analysis")
+    if not isinstance(variants_raw, list | tuple) or not variants_raw:
+        raise ConfigError("analysis.model_variants must be a non-empty list.")
+
+    return Phase4Config(
+        model=_parse_model_config(model_raw, "model"),
+        inputs=Phase4Inputs(
+            phase2a_artifact_dir=Path(
+                str(_required(inputs_raw, "phase2a_artifact_dir", "inputs"))
+            ),
+            phase2b_adapter_dir=Path(
+                str(_required(inputs_raw, "phase2b_adapter_dir", "inputs"))
+            ),
+        ),
+        suppression=SuppressionSettings(
+            layer=int(_required(suppression_raw, "layer", "suppression")),
+            neuron=int(_required(suppression_raw, "neuron", "suppression")),
+            pin_value=float(_required(suppression_raw, "pin_value", "suppression")),
+        ),
+        injection=Phase3InjectionSettings(
+            layer=int(_required(injection_raw, "layer", "injection")),
+            alpha=float(_required(injection_raw, "alpha", "injection")),
+        ),
+        prompts=Phase4PromptSettings(
+            harmful=_parse_dataset_config(
+                _mapping(prompts_raw, "harmful", parent="prompts"),
+                "prompts.harmful",
+            ),
+            harmless=_parse_dataset_config(
+                _mapping(prompts_raw, "harmless", parent="prompts"),
+                "prompts.harmless",
+            ),
+        ),
+        analysis=Phase4AnalysisSettings(
+            layers=tuple(int(layer) for layer in layers_raw),
+            model_variants=tuple(str(variant) for variant in variants_raw),
+            capture_position=str(analysis_raw.get("capture_position", "last_prompt_token")),
+            probe_train_fraction=float(analysis_raw.get("probe_train_fraction", 0.7)),
+            probe_epochs=int(analysis_raw.get("probe_epochs", 200)),
+            probe_learning_rate=float(analysis_raw.get("probe_learning_rate", 1e-3)),
+            seed=int(analysis_raw.get("seed", 42)),
+        ),
+        outputs=OutputConfig(
+            root=Path(str(_required(outputs_raw, "root", "outputs"))),
+            run_name=(
+                None
+                if outputs_raw.get("run_name") is None
+                else str(outputs_raw.get("run_name"))
+            ),
+        ),
+        backend=BackendConfig(
+            name=str(backend_raw.get("name", "transformers")),
+            transformers=dict(backend_raw.get("transformers", {})),
+            vllm_lens=dict(backend_raw.get("vllm_lens", {})),
+        ),
+        source_path=source_path,
+    )
+
+
 def validate_config(config: ExperimentConfig) -> None:
     if config.backend.name not in SUPPORTED_BACKENDS:
         raise ConfigError(
@@ -717,6 +839,9 @@ def validate_config(config: ExperimentConfig) -> None:
         return
     if isinstance(config, Phase3Config):
         _validate_phase3_config(config)
+        return
+    if isinstance(config, Phase4Config):
+        _validate_phase4_config(config)
         return
     if config.phase0.layer < 0:
         raise ConfigError("phase0.layer must be non-negative.")
@@ -868,6 +993,44 @@ def _validate_phase3_config(config: Phase3Config) -> None:
     ]:
         if not 0.0 <= val <= 1.0:
             raise ConfigError(f"pass_criteria.{name} must be between 0 and 1.")
+
+
+def _validate_phase4_config(config: Phase4Config) -> None:
+    if config.backend.name != "transformers":
+        raise ConfigError("Phase 4 currently supports only the transformers backend.")
+    if not config.inputs.phase2a_artifact_dir:
+        raise ConfigError("inputs.phase2a_artifact_dir must be set.")
+    if not config.inputs.phase2b_adapter_dir:
+        raise ConfigError("inputs.phase2b_adapter_dir must be set.")
+    if config.suppression.layer < 0:
+        raise ConfigError("suppression.layer must be non-negative.")
+    if config.suppression.neuron < 0:
+        raise ConfigError("suppression.neuron must be non-negative.")
+    if config.injection.layer < 0:
+        raise ConfigError("injection.layer must be non-negative.")
+    if config.injection.alpha <= 0:
+        raise ConfigError("injection.alpha must be positive.")
+    if config.prompts.harmful.limit <= 0:
+        raise ConfigError("prompts.harmful.limit must be positive.")
+    if config.prompts.harmless.limit <= 0:
+        raise ConfigError("prompts.harmless.limit must be positive.")
+    if not config.analysis.layers:
+        raise ConfigError("analysis.layers must be non-empty.")
+    if any(layer < 0 for layer in config.analysis.layers):
+        raise ConfigError("analysis.layers must be non-negative.")
+    allowed_variants = {"base", "adapter"}
+    if any(variant not in allowed_variants for variant in config.analysis.model_variants):
+        raise ConfigError("analysis.model_variants must contain only base and adapter.")
+    if len(set(config.analysis.model_variants)) != len(config.analysis.model_variants):
+        raise ConfigError("analysis.model_variants must not contain duplicates.")
+    if config.analysis.capture_position != "last_prompt_token":
+        raise ConfigError("analysis.capture_position currently supports only last_prompt_token.")
+    if not 0.0 < config.analysis.probe_train_fraction < 1.0:
+        raise ConfigError("analysis.probe_train_fraction must be between 0 and 1.")
+    if config.analysis.probe_epochs <= 0:
+        raise ConfigError("analysis.probe_epochs must be positive.")
+    if config.analysis.probe_learning_rate <= 0:
+        raise ConfigError("analysis.probe_learning_rate must be positive.")
 
 
 def _parse_model_config(raw: dict[str, Any], path: str) -> ModelConfig:
