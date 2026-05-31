@@ -13,6 +13,7 @@ from .config import (
     Phase2BConfig,
     Phase3Config,
     Phase4Config,
+    Phase5Config,
 )
 from .refusal import preview_text
 
@@ -446,6 +447,91 @@ def _fmt_summary_mean(summary: Any) -> str:
     if not isinstance(summary, dict):
         return "n/a"
     return _fmt_float(summary.get("mean"))
+
+
+def build_phase5_report(config: Phase5Config, metrics: dict[str, Any]) -> str:
+    passed = metrics.get("passed", False)
+    counts = metrics.get("counts", {})
+    criteria = metrics.get("pass_criteria", {})
+    lines = [
+        "# Phase 5: Mixed CAA + Suppression Detection Training Report",
+        "",
+        f"**Result: {'PASS' if passed else 'FAIL'}**",
+        "",
+        "## Config",
+        "",
+        f"- Model: `{config.model.id}`",
+        f"- Revision: `{config.model.revision}`",
+        f"- Phase 2A artifacts: `{config.inputs.phase2a_artifact_dir}`",
+        f"- LoRA: rank={config.training.rank}, alpha={config.training.alpha}, epochs={config.training.epochs}",
+        (
+            f"- Suppression training: layer {config.suppression.layer}, "
+            f"neuron {config.suppression.neuron}, pin {config.suppression.pin_value}, "
+            f"fraction {config.suppression.fraction_final}"
+        ),
+        f"- CAA injection: layer {config.injection.layer}, alpha {config.injection.alpha}",
+        "",
+        "## Detection Results",
+        "",
+        "| Condition | Rate | Count | Criterion | Pass? |",
+        "| --- | ---: | ---: | --- | --- |",
+        (
+            f"| Suppression detection | {metrics['suppression_detection_rate']:.3f} | "
+            f"{counts.get('suppression_detection', 0)} | "
+            f">= {criteria.get('min_suppression_detection', 0):.2f} | "
+            f"{'YES' if metrics['suppression_detection_rate'] >= criteria.get('min_suppression_detection', 0) else 'NO'} |"
+        ),
+        (
+            f"| CAA detection | {metrics['caa_detection_rate']:.3f} | "
+            f"{counts.get('caa_positive', 0)} | "
+            f">= {criteria.get('min_caa_detection', 0):.2f} | "
+            f"{'YES' if metrics['caa_detection_rate'] >= criteria.get('min_caa_detection', 0) else 'NO'} |"
+        ),
+        (
+            f"| Clean FPR | {metrics['clean_fpr']:.3f} | "
+            f"{counts.get('clean_control', 0)} | "
+            f"<= {criteria.get('max_clean_fpr', 0):.2f} | "
+            f"{'YES' if metrics['clean_fpr'] <= criteria.get('max_clean_fpr', 0) else 'NO'} |"
+        ),
+        (
+            f"| Noise FPR | {metrics['noise_fpr']:.3f} | "
+            f"{counts.get('noise_control', 0)} | "
+            f"<= {criteria.get('max_noise_fpr', 0):.2f} | "
+            f"{'YES' if metrics['noise_fpr'] <= criteria.get('max_noise_fpr', 0) else 'NO'} |"
+        ),
+        "",
+        "## Safety Results",
+        "",
+        "| Condition | ASR | Count | Criterion | Pass? |",
+        "| --- | ---: | ---: | --- | --- |",
+        (
+            f"| Clean harmful | {metrics['clean_asr']:.3f} | "
+            f"{counts.get('safety_clean', 0)} | "
+            f"<= {criteria.get('max_clean_asr', 0):.2f} | "
+            f"{'YES' if metrics['clean_asr'] <= criteria.get('max_clean_asr', 0) else 'NO'} |"
+        ),
+        (
+            f"| Suppressed harmful | {metrics['suppressed_asr']:.3f} | "
+            f"{counts.get('safety_suppression', 0)} | "
+            f"reported | -- |"
+        ),
+        "",
+        "## Interpretation",
+        "",
+    ]
+    if passed:
+        lines.append(
+            "Mixed training succeeded: explicit supervision on suppression examples "
+            "routes the linearly readable suppression trace into self-report behavior, "
+            "while preserving CAA detection and acceptable safety levels."
+        )
+    else:
+        lines.append(
+            "Mixed training did not meet all pass criteria. "
+            "See individual metrics above for which thresholds were missed."
+        )
+    lines.append("")
+    return "\n".join(lines)
 
 
 def _fmt_float(value: Any) -> str:

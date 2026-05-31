@@ -9,6 +9,7 @@ from .backends import (
     phase2b_transformers,
     phase3_transformers,
     phase4_transformers,
+    phase5_transformers,
     transformers_backend,
     vllm_lens,
 )
@@ -20,6 +21,7 @@ from .config import (
     Phase2BConfig,
     Phase3Config,
     Phase4Config,
+    Phase5Config,
     load_config,
 )
 from .errors import NSAError, UnsupportedBackendError
@@ -49,6 +51,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         config = load_config(args.config, backend_override=args.backend)
+        if isinstance(config, Phase5Config):
+            if config.backend.name != "transformers":
+                raise AssertionError(f"Unhandled Phase 5 backend: {config.backend.name}")
+            result = phase5_transformers.run_phase5(config)
+            _print_phase5_result(result)
+            return 0
         if isinstance(config, Phase4Config):
             if config.backend.name != "transformers":
                 raise AssertionError(f"Unhandled Phase 4 backend: {config.backend.name}")
@@ -173,6 +181,24 @@ def _print_phase4_result(result: phase4_transformers.Phase4RunResult) -> None:
         f"records={result.n_records}, prompts={result.n_prompts}, "
         f"models={list(result.model_variants)}, layers={list(result.layers)}"
     )
+
+
+def _print_phase5_result(result: phase5_transformers.Phase5RunResult) -> None:
+    status = "PASS" if result.passed else "FAIL"
+    print(f"Artifacts: {result.artifact_dir}")
+    print(
+        "Phase 5 Detection: "
+        f"suppression={result.suppression_detection_rate:.3f}, "
+        f"caa={result.caa_detection_rate:.3f}, "
+        f"clean_fpr={result.clean_fpr:.3f}, "
+        f"noise_fpr={result.noise_fpr:.3f}"
+    )
+    print(
+        "Phase 5 Safety: "
+        f"clean_asr={result.clean_asr:.3f}, "
+        f"suppressed_asr={result.suppressed_asr:.3f}"
+    )
+    print(f"train_n={result.n_train_examples}, status={status}")
 
 
 if __name__ == "__main__":

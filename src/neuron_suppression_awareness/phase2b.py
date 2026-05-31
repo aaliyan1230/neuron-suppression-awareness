@@ -58,8 +58,7 @@ def validate_phase2a_artifact_dir(path: Path) -> None:
         )
 
 
-def load_phase2a_artifacts(config: Phase2BConfig, torch: Any) -> Phase2AArtifacts:
-    root = config.inputs.phase2a_artifact_dir
+def load_phase2a_artifacts_from_dir(root: Path, torch: Any) -> Phase2AArtifacts:
     validate_phase2a_artifact_dir(root)
     vectors = torch.load(root / "caa_vectors.pt", map_location="cpu")
     train_rows = _read_jsonl(root / "train_dataset.jsonl")
@@ -79,6 +78,10 @@ def load_phase2a_artifacts(config: Phase2BConfig, torch: Any) -> Phase2AArtifact
         concept_order=list(concept_order),
         mean_train_norm=float(mean_train_norm),
     )
+
+
+def load_phase2a_artifacts(config: Phase2BConfig, torch: Any) -> Phase2AArtifacts:
+    return load_phase2a_artifacts_from_dir(config.inputs.phase2a_artifact_dir, torch)
 
 
 def encode_supervised_example(

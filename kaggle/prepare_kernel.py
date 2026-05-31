@@ -66,6 +66,12 @@ PHASES = {
         code_file="run_phase4.py",
         slug="nsa-phase4",
     ),
+    "phase5": PhaseKernel(
+        source_dir=ROOT / "kaggle" / "phase5",
+        metadata_path=ROOT / "kaggle" / "phase5" / "kernel-metadata.json",
+        code_file="run_phase5.py",
+        slug="nsa-phase5",
+    ),
 }
 
 
@@ -75,7 +81,7 @@ def main() -> int:
     )
     parser.add_argument(
         "phase",
-        choices=["phase0", "phase1", "phase2a", "phase2b", "phase3", "phase4", "all"],
+        choices=["phase0", "phase1", "phase2a", "phase2b", "phase3", "phase4", "phase5", "all"],
         nargs="?",
         default="all",
         help="Which kernel metadata file to update.",
@@ -211,7 +217,7 @@ def build_push_dir(
         if phase2a_artifact_dataset not in sources:
             sources.append(phase2a_artifact_dataset)
         payload["dataset_sources"] = sources
-    if phase in {"phase3", "phase4"} and phase2a_artifact_dataset:
+    if phase in {"phase3", "phase4", "phase5"} and phase2a_artifact_dataset:
         sources = list(payload.get("dataset_sources", []))
         if phase2a_artifact_dataset not in sources:
             sources.append(phase2a_artifact_dataset)
