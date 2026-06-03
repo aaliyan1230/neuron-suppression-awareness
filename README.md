@@ -2,7 +2,7 @@
 
 **Can a language model tell when its own safety mechanisms are being tampered with?**
 
-This project investigates whether LLMs can be trained to detect internal manipulation — and whether that detection generalizes across different attack types. We train [Qwen3-8B](https://huggingface.co/Qwen/Qwen3-8B) to detect one kind of internal tampering ([steering vectors](https://arxiv.org/abs/2501.13011)), then test whether it notices a completely different attack ([neuron suppression](https://arxiv.org/abs/2505.03552)) that it has never seen before.
+This project investigates whether LLMs can be trained to detect internal manipulation — and whether that detection generalizes across different attack types. We train [Qwen3-8B](https://huggingface.co/Qwen/Qwen3-8B) to detect one kind of internal tampering ([steering vectors](https://arxiv.org/abs/2511.21399)), then test whether it notices a completely different attack ([neuron suppression](https://arxiv.org/abs/2605.08513)) that it has never seen before.
 
 **The short answer:** It doesn't. Detection is mechanism-specific, not general. But the signal *is* there — an external probe can read it perfectly. And when we explicitly train on both attack types, detection recovers completely.
 
@@ -18,7 +18,7 @@ Pinning a single MLP neuron to a constant value disables the model's ability to 
 
 ### 2. The model can detect steering vectors perfectly — but is completely blind to neuron suppression
 
-After training the model to detect [Contrastive Activation Addition](https://arxiv.org/abs/2501.13011) (CAA) steering vectors, it achieves 100% detection with 0% false positives. But when tested against neuron suppression — a mechanistically different attack — detection drops to **exactly 0%**. No partial transfer, no weak signal. Total blindness.
+After training the model to detect [Contrastive Activation Addition](https://arxiv.org/abs/2511.21399) (CAA) steering vectors, it achieves 100% detection with 0% false positives. But when tested against neuron suppression — a mechanistically different attack — detection drops to **exactly 0%**. No partial transfer, no weak signal. Total blindness.
 
 Adding suppression examples to the training mix fixes this completely: detection jumps to 100% for both attack types while maintaining zero false positives.
 
@@ -82,8 +82,8 @@ If you're building an AI safety monitor that watches a model's internal state fo
 
 This project combines two lines of research:
 
-- **Kazemi et al. (2025)** — [*On the Biology of a Large Language Model*](https://arxiv.org/abs/2505.03552) — identified single "refusal neurons" in LLMs whose suppression disables safety behavior.
-- **Fonseca et al. (2025)** — [*Steering-Aware LLMs*](https://arxiv.org/abs/2501.13011) — showed that LLMs can be trained to detect and report when steering vectors are injected into their residual stream.
+- **Kazemi et al. (2025)** — [*A Single Neuron Is Sufficient to Bypass Safety Alignment in Large Language Models*](https://arxiv.org/abs/2605.08513) — identified single "refusal neurons" in LLMs whose suppression disables safety behavior.
+- **Fonseca Rivera & Africa (2025)** — [*Steering Awareness: Detecting Activation Steering from Within*](https://arxiv.org/abs/2511.21399) — showed that LLMs can be trained to detect and report when steering vectors are injected into their residual stream.
 
 We ask: does the self-awareness from Fonseca generalize to the attack from Kazemi?
 
